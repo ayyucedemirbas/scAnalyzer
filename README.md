@@ -12,6 +12,15 @@ A Python toolkit for single-cell RNA sequencing (scRNA-seq) analysis.
 </p>
 
 
+<p align="center">
+<a href="https://pypi.org/project/scAnalysis/" target="_blank">
+    <img src="https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package" alt="Package version">
+</a>
+</p>
+
+
+pip install scAnalysis
+
 ## 🚀 Features
 
 * **Core Data Structure**: `SingleCellDataset` (AnnData-like) for efficient handling of sparse matrices and metadata.
