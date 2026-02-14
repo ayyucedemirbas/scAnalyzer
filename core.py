@@ -206,7 +206,6 @@ class SingleCellDataset:
         # Slice X
         new_X = self._X[obs_idx, var_idx]
 
-        # --- FIX 1: Ensure X stays 2D (Numpy drops dims on integer slices) ---
         if hasattr(new_X, "ndim") and new_X.ndim == 1:
             if isinstance(obs_idx, (int, np.integer)):
                 # Sliced a single row -> reshape to (1, n_vars)
@@ -214,9 +213,7 @@ class SingleCellDataset:
             elif isinstance(var_idx, (int, np.integer)):
                 # Sliced a single col -> reshape to (n_obs, 1)
                 new_X = new_X.reshape(-1, 1)
-        # --------------------------------------------------------------------
 
-        # --- FIX 2: Ensure obs/var stay DataFrames (iloc[int] returns Series) ---
         if isinstance(obs_idx, (int, np.integer)):
             new_obs = self._obs.iloc[obs_idx : obs_idx + 1].copy()
         else:
@@ -228,7 +225,6 @@ class SingleCellDataset:
             new_var = self._var.copy()
         else:
             new_var = self._var.iloc[var_idx].copy()
-        # ----------------------------------------------------------------------
 
         # Create new object
         # Note: obsm slicing requires careful handling of indices

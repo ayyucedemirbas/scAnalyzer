@@ -168,8 +168,8 @@ def run_tsne(
         early_exaggeration=early_exaggeration,
         learning_rate=learning_rate,
         random_state=random_state,
-        init="pca",  # Usually converges faster
-        n_jobs=-1,  # Use all cores
+        init="pca",
+        n_jobs=-1,
     )
 
     X_tsne = tsne.fit_transform(X)

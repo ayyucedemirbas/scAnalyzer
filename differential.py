@@ -41,7 +41,7 @@ def rank_genes_groups(
     if groups != "all":
         unique_labels = [g for g in unique_labels if g in groups]
 
-    # --- FIX: Handle data.raw being a SingleCellDataset object ---
+    # FIX: Handle data.raw being a SingleCellDataset object
     if use_raw and data.raw is not None:
         if hasattr(data.raw, "X"):  # It's a SingleCellDataset
             X = data.raw.X
@@ -55,7 +55,6 @@ def rank_genes_groups(
     else:
         X = data.X
         var_names = data.var.index
-    # -------------------------------------------------------------
 
     # Initialize results storage
     results = {}
@@ -68,7 +67,7 @@ def rank_genes_groups(
     for group in unique_labels:
         print(f"  ... processing group {group}")
 
-        # 1. Create masks
+        # Create masks
         group_mask = (labels == group).values
 
         if reference == "rest":
@@ -78,14 +77,14 @@ def rank_genes_groups(
                 raise ValueError(f"Reference group {reference} not found.")
             rest_mask = (labels == reference).values
 
-        # 2. Split data
+        # Split data
         X_group = X[group_mask, :]
         X_rest = X[rest_mask, :]
 
         n_group = X_group.shape[0]
         n_rest = X_rest.shape[0]
 
-        # 3. Calculate basic stats (Mean, Pct)
+        # Calculate basic stats (Mean, Pct)
         if sp.issparse(X):
             mean_group = np.ravel(X_group.mean(axis=0))
             mean_rest = np.ravel(X_rest.mean(axis=0))
@@ -103,7 +102,7 @@ def rank_genes_groups(
             pct_group = np.count_nonzero(X_group, axis=0) / n_group
             pct_rest = np.count_nonzero(X_rest, axis=0) / n_rest
 
-        # 4. Statistical Tests
+        # Statistical Tests
         if method == "t-test":
             if sp.issparse(X):
                 mean_sq_group = np.ravel(X_group.power(2).mean(axis=0))
@@ -149,7 +148,7 @@ def rank_genes_groups(
         pvals[np.isnan(pvals)] = 1.0
         _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method="fdr_bh")
 
-        # 5. Organise Result
+        # Organise Result
         df = pd.DataFrame(
             {
                 "names": var_names,

@@ -69,7 +69,6 @@ def cluster_leiden(
     if "neighbors" not in data.uns:
         raise ValueError("Run neighbors() first to compute the graph.")
 
-    # 1. Reconstruct igraph object from adjacency matrix
     adjacency = data.uns["neighbors"]["connectivities"]
     sources, targets = adjacency.nonzero()
     weights = adjacency.data
@@ -83,7 +82,7 @@ def cluster_leiden(
 
     print(f"Clustering: Running Leiden with resolution={resolution}...")
 
-    # 2. Run Leiden
+    # Run Leiden
     # RBConfigurationVertexPartition is standard for optimizing modularity with resolution parameter
     partition = leidenalg.find_partition(
         g,
@@ -94,7 +93,7 @@ def cluster_leiden(
         seed=random_state,
     )
 
-    # 3. Store results
+    # Store results
     labels = np.array(partition.membership)
     data.obs[key_added] = pd.Categorical(labels.astype(str))
 
