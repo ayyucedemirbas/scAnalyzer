@@ -327,7 +327,7 @@ def plot_dotplot(
 def volcano_plot(
     data: SingleCellDataset,
     group: str,
-    key: str = 'rank_genes_groups',
+    key: str = "rank_genes_groups",
     pval_threshold: float = 0.05,
     lfc_threshold: float = 0.5,
     top_n_genes: int = 10,
@@ -336,7 +336,7 @@ def volcano_plot(
 ):
     """
     Volcano plot for differential expression results.
-    
+
     Parameters
     ----------
     data : SingleCellDataset
@@ -356,73 +356,83 @@ def volcano_plot(
     save : str, optional
         Path to save figure.
     """
-    
+
     if key not in data.uns:
         raise ValueError(f"{key} not found. Run rank_genes_groups() first.")
-    
+
     if group not in data.uns[key]:
         raise ValueError(f"Group {group} not found in {key}.")
-    
+
     df = data.uns[key][group].copy()
-    
+
     # Prepare data
-    df['-log10(pval)'] = -np.log10(df['pvals_adj'] + 1e-300)  # Avoid log(0)
-    
+    df["-log10(pval)"] = -np.log10(df["pvals_adj"] + 1e-300)  # Avoid log(0)
+
     # Color categories
-    df['category'] = 'Not significant'
+    df["category"] = "Not significant"
     df.loc[
-        (df['pvals_adj'] < pval_threshold) & (df['logfoldchanges'] > lfc_threshold),
-        'category'
-    ] = 'Up-regulated'
+        (df["pvals_adj"] < pval_threshold) & (df["logfoldchanges"] > lfc_threshold),
+        "category",
+    ] = "Up-regulated"
     df.loc[
-        (df['pvals_adj'] < pval_threshold) & (df['logfoldchanges'] < -lfc_threshold),
-        'category'
-    ] = 'Down-regulated'
-    
+        (df["pvals_adj"] < pval_threshold) & (df["logfoldchanges"] < -lfc_threshold),
+        "category",
+    ] = "Down-regulated"
+
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
-    
-    colors = {'Not significant': 'gray', 'Up-regulated': 'red', 'Down-regulated': 'blue'}
-    
-    for cat in ['Not significant', 'Down-regulated', 'Up-regulated']:
-        subset = df[df['category'] == cat]
+
+    colors = {
+        "Not significant": "gray",
+        "Up-regulated": "red",
+        "Down-regulated": "blue",
+    }
+
+    for cat in ["Not significant", "Down-regulated", "Up-regulated"]:
+        subset = df[df["category"] == cat]
         ax.scatter(
-            subset['logfoldchanges'],
-            subset['-log10(pval)'],
+            subset["logfoldchanges"],
+            subset["-log10(pval)"],
             c=colors[cat],
             alpha=0.6,
             s=10,
-            label=cat
+            label=cat,
         )
-    
+
     # Add threshold lines
-    ax.axhline(-np.log10(pval_threshold), color='black', linestyle='--', linewidth=0.8, alpha=0.5)
-    ax.axvline(lfc_threshold, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
-    ax.axvline(-lfc_threshold, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
-    
+    ax.axhline(
+        -np.log10(pval_threshold),
+        color="black",
+        linestyle="--",
+        linewidth=0.8,
+        alpha=0.5,
+    )
+    ax.axvline(lfc_threshold, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.axvline(-lfc_threshold, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+
     # Label top genes
-    significant = df[df['category'] != 'Not significant'].sort_values('pvals_adj')
+    significant = df[df["category"] != "Not significant"].sort_values("pvals_adj")
     for i, row in significant.head(top_n_genes).iterrows():
         ax.text(
-            row['logfoldchanges'],
-            row['-log10(pval)'],
-            row['names'],
+            row["logfoldchanges"],
+            row["-log10(pval)"],
+            row["names"],
             fontsize=8,
-            alpha=0.8
+            alpha=0.8,
         )
-    
-    ax.set_xlabel('Log Fold Change', fontsize=12)
-    ax.set_ylabel('-log10(Adjusted P-value)', fontsize=12)
-    ax.set_title(f'Volcano Plot: {group}', fontsize=14)
+
+    ax.set_xlabel("Log Fold Change", fontsize=12)
+    ax.set_ylabel("-log10(Adjusted P-value)", fontsize=12)
+    ax.set_title(f"Volcano Plot: {group}", fontsize=14)
     ax.legend()
-    
+
     sns.despine()
     plt.tight_layout()
-    
+
     if save:
-        plt.savefig(save, bbox_inches='tight', dpi=300)
+        plt.savefig(save, bbox_inches="tight", dpi=300)
         print(f"Saved plot to {save}")
-    
+
     plt.show()
 
 
@@ -435,7 +445,7 @@ def plot_qc_violin(
 ):
     """
     Violin plots for QC metrics.
-    
+
     Parameters
     ----------
     data : SingleCellDataset
@@ -449,48 +459,47 @@ def plot_qc_violin(
     save : str, optional
         Path to save figure.
     """
-    
+
     if metrics is None:
         # Default metrics
-        available = ['n_genes_by_counts', 'total_counts']
-        pct_cols = [c for c in data.obs.columns if c.startswith('pct_counts_')]
+        available = ["n_genes_by_counts", "total_counts"]
+        pct_cols = [c for c in data.obs.columns if c.startswith("pct_counts_")]
         metrics = available + pct_cols
         metrics = [m for m in metrics if m in data.obs.columns]
-    
+
     if len(metrics) == 0:
         raise ValueError("No metrics found. Run calculate_qc_metrics() first.")
-    
+
     n_metrics = len(metrics)
     fig, axes = plt.subplots(1, n_metrics, figsize=figsize)
-    
+
     if n_metrics == 1:
         axes = [axes]
-    
+
     for i, metric in enumerate(metrics):
         ax = axes[i]
-        
+
         if groupby and groupby in data.obs.columns:
             # Grouped violin
-            plot_data = pd.DataFrame({
-                'value': data.obs[metric],
-                'group': data.obs[groupby]
-            })
-            sns.violinplot(data=plot_data, x='group', y='value', ax=ax)
+            plot_data = pd.DataFrame(
+                {"value": data.obs[metric], "group": data.obs[groupby]}
+            )
+            sns.violinplot(data=plot_data, x="group", y="value", ax=ax)
             ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
         else:
             # Single violin
-            sns.violinplot(y=data.obs[metric], ax=ax, color='lightblue')
-        
+            sns.violinplot(y=data.obs[metric], ax=ax, color="lightblue")
+
         ax.set_title(metric)
-        ax.set_ylabel('Value')
-        ax.set_xlabel('')
-    
+        ax.set_ylabel("Value")
+        ax.set_xlabel("")
+
     plt.tight_layout()
-    
+
     if save:
-        plt.savefig(save, bbox_inches='tight', dpi=300)
+        plt.savefig(save, bbox_inches="tight", dpi=300)
         print(f"Saved plot to {save}")
-    
+
     plt.show()
 
 
@@ -502,7 +511,7 @@ def plot_highest_expr_genes(
 ):
     """
     Bar plot of genes with highest expression.
-    
+
     Parameters
     ----------
     data : SingleCellDataset
@@ -514,35 +523,35 @@ def plot_highest_expr_genes(
     save : str, optional
         Path to save figure.
     """
-    
+
     X = data.X
-    
+
     # Calculate mean expression per gene
     if sp.issparse(X):
         gene_means = np.ravel(X.mean(axis=0))
     else:
         gene_means = X.mean(axis=0)
-    
+
     # Get top genes
     top_indices = np.argsort(gene_means)[::-1][:n_top]
     top_genes = data.var.index[top_indices]
     top_values = gene_means[top_indices]
-    
+
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     y_pos = np.arange(len(top_genes))
-    ax.barh(y_pos, top_values, color='steelblue')
+    ax.barh(y_pos, top_values, color="steelblue")
     ax.set_yticks(y_pos)
     ax.set_yticklabels(top_genes)
     ax.invert_yaxis()
-    ax.set_xlabel('Mean Expression')
-    ax.set_title(f'Top {n_top} Highest Expressed Genes')
-    
+    ax.set_xlabel("Mean Expression")
+    ax.set_title(f"Top {n_top} Highest Expressed Genes")
+
     plt.tight_layout()
-    
+
     if save:
-        plt.savefig(save, bbox_inches='tight', dpi=300)
+        plt.savefig(save, bbox_inches="tight", dpi=300)
         print(f"Saved plot to {save}")
-    
+
     plt.show()
