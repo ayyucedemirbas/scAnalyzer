@@ -5,3 +5,9 @@ scikit-learn
 matplotlib
 seaborn
 h5py
+statsmodels
+umap-learn
+leidenalg
+louvain
+igraph
+plotly

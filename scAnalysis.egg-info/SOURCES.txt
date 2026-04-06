@@ -1,3 +1,5 @@
+LICENSE
+README.md
 pyproject.toml
 scAnalysis/__init__.py
 scAnalysis/batch_correction.py

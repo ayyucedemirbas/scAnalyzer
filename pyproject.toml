@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scAnalysis"
-version = "0.1.3"
+version = "0.1.4"
 description = "A single-cell analysis pipeline."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,5 +15,11 @@ dependencies = [
     "scikit-learn",
     "matplotlib",
     "seaborn",
-    "h5py"
+    "h5py",
+    "statsmodels",
+    "umap-learn",
+    "leidenalg",
+    "louvain",
+    "igraph",
+    "plotly"
 ]
