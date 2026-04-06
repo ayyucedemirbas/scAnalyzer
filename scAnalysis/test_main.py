@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import clustering
-import core
-import differential
-import dimensionality
-import preprocessing
-import sc_io as io
-import visualization
+from . import clustering
+from . import core
+from . import differential
+from . import dimensionality
+from . import preprocessing
+from . import sc_io as io
+from . import visualization
 
 DATA_URL = "https://cf.10xgenomics.com/samples/cell-exp/1.1.0/pbmc3k/pbmc3k_filtered_gene_bc_matrices.tar.gz"
 DATA_DIR = "./data"

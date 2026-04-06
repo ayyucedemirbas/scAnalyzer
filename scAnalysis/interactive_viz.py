@@ -3,7 +3,7 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def interactive_embedding(

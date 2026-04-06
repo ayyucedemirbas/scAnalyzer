@@ -10,7 +10,7 @@ import pandas as pd
 import scipy.sparse as sp
 import seaborn as sns
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 sns.set_theme(style="white", context="paper")
 

@@ -6,7 +6,7 @@ import scipy.sparse as sp
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.neighbors import NearestNeighbors
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def scrublet(

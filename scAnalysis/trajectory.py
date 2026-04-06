@@ -7,7 +7,7 @@ import pandas as pd
 import scipy.sparse as sp
 from scipy.sparse.linalg import eigsh
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def select_root_cell(

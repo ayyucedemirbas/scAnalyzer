@@ -8,7 +8,7 @@ import scipy.sparse as sp
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def rank_genes_groups(

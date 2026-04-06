@@ -8,7 +8,7 @@ import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def harmony_integrate(

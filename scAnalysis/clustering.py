@@ -25,7 +25,7 @@ try:
 except ImportError:
     _louvain_mod = None
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def _get_rep(data: SingleCellDataset, use_rep: str) -> np.ndarray:

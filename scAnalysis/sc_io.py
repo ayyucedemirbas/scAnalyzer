@@ -11,7 +11,7 @@ import pandas as pd
 import scipy.io as sio
 import scipy.sparse as sp
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def read_10x_mtx(

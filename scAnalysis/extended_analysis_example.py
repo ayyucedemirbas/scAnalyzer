@@ -9,17 +9,17 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import cell_cycle as cc
-import clustering as cl
-import differential as diff
-import dimensionality as dim
-import enrichment as enrich
-import interactive_viz as iviz
-import preprocessing as pp
-import quality_control as qc
-import sc_io as io
-import visualization as vis
-from core import SingleCellDataset
+from . import cell_cycle as cc
+from . import clustering as cl
+from . import differential as diff
+from . import dimensionality as dim
+from . import enrichment as enrich
+from . import interactive_viz as iviz
+from . import preprocessing as pp
+from . import quality_control as qc
+from . import sc_io as io
+from . import visualization as vis
+from .core import SingleCellDataset
 
 DATA_URL = "https://cf.10xgenomics.com/samples/cell-exp/1.1.0/pbmc3k/pbmc3k_filtered_gene_bc_matrices.tar.gz"
 DATA_DIR = "./data"

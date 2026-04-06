@@ -5,7 +5,7 @@ import pandas as pd
 import scipy.sparse as sp
 from scipy import stats
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 S_GENES_HUMAN = [
     "MCM5",

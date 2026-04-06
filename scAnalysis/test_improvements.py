@@ -14,16 +14,16 @@ import scipy.sparse as sp
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import batch_correction
-import clustering
-import differential
-import dimensionality
-import preprocessing
-import sc_io
-import trajectory
-import utils
-import visualization
-from core import SingleCellDataset
+from . import batch_correction
+from . import clustering
+from . import differential
+from . import dimensionality
+from . import preprocessing
+from . import sc_io
+from . import trajectory
+from . import utils
+from . import visualization
+from .core import SingleCellDataset
 
 
 def _make_data(n_cells=60, n_genes=20, sparse=True, seed=42):

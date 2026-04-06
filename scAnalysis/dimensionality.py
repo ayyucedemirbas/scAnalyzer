@@ -19,7 +19,7 @@ try:
 except ImportError:
     _phate_mod = None
 
-from core import SingleCellDataset
+from .core import SingleCellDataset
 
 
 def run_pca(
