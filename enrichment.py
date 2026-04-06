@@ -17,44 +17,15 @@ def gene_set_score(
     random_state: int = 0,
     use_raw: bool = False,
 ) -> SingleCellDataset:
-    """
-    Calculate enrichment score for a gene set per cell.
 
-    Similar to Seurat's AddModuleScore. Computes the mean expression
-    of genes in the gene set minus the mean expression of control genes
-    matched for expression level.
+    # Examples
 
-    Parameters
+    # hypoxia_genes = ['VEGFA', 'HIF1A', 'LDHA', 'PDK1']
+    # gene_set_score(data, hypoxia_genes, score_name='hypoxia_score')
+    # Cells with high hypoxia score
+    # hypoxic = data[data.obs['hypoxia_score'] > 0.5, :]
 
-    data : SingleCellDataset
-        Annotated data matrix (should be normalized and log-transformed).
-    gene_list : List[str]
-        List of gene names in the gene set.
-    score_name : str, optional
-        Name for the score column in obs. If None, uses 'gene_set_score'.
-    ctrl_size : int, default: 50
-        Number of control genes per gene in gene_list.
-    n_bins : int, default: 25
-        Number of expression bins for matching control genes.
-    random_state : int, default: 0
-        Random seed.
-    use_raw : bool, default: False
-        Use raw counts if available.
-
-    Returns
-
-    SingleCellDataset
-        Adds score column to data.obs.
-
-    Examples
-
-    >>> hypoxia_genes = ['VEGFA', 'HIF1A', 'LDHA', 'PDK1']
-    >>> gene_set_score(data, hypoxia_genes, score_name='hypoxia_score')
-    >>> # Cells with high hypoxia score
-    >>> hypoxic = data[data.obs['hypoxia_score'] > 0.5, :]
-    """
-
-    from cell_cycle import score_genes  # Reuse the scoring function
+    from cell_cycle import score_genes
 
     scores = score_genes(
         data,
@@ -86,36 +57,14 @@ def score_multiple_gene_sets(
     use_raw: bool = False,
 ) -> SingleCellDataset:
     """
-    Score multiple gene sets at once.
-
-    Parameters
-
-    data : SingleCellDataset
-        Annotated data matrix.
-    gene_sets : Dict[str, List[str]]
-        Dictionary mapping gene set names to gene lists.
-    ctrl_size : int, default: 50
-        Number of control genes.
-    n_bins : int, default: 25
-        Number of expression bins.
-    random_state : int, default: 0
-        Random seed.
-    use_raw : bool, default: False
-        Use raw counts.
-
-    Returns
-
-    SingleCellDataset
-        Adds one score column per gene set to data.obs.
-
     Examples
 
-    >>> gene_sets = {
+     gene_sets = {
     ...     'T_cell': ['CD3D', 'CD3E', 'CD3G'],
     ...     'B_cell': ['CD19', 'MS4A1', 'CD79A'],
     ...     'Myeloid': ['CD14', 'LYZ', 'S100A8']
     ... }
-    >>> score_multiple_gene_sets(data, gene_sets)
+     score_multiple_gene_sets(data, gene_sets)
     """
 
     print(f"Gene Sets: Scoring {len(gene_sets)} gene sets...")
@@ -143,30 +92,6 @@ def rank_genes_groups_by_enrichment(
     background: Optional[List[str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Test enrichment of gene sets in differentially expressed genes.
-
-    For each group, tests whether its marker genes are enriched
-    for genes in each gene set.
-
-    Parameters
-    data : SingleCellDataset
-        Dataset with differential expression results.
-    gene_sets : Dict[str, List[str]]
-        Gene sets to test.
-    groupby : str
-        Grouping variable (must match rank_genes_groups).
-    key : str, default: 'rank_genes_groups'
-        Key in uns containing DE results.
-    method : str, default: 'hypergeometric'
-        Enrichment test method.
-    background : List[str], optional
-        Background gene set. If None, uses all genes.
-
-    Returns
-
-    Dict[str, pd.DataFrame]
-        Enrichment results for each group.
-
     Examples
 
     >>> from differential import rank_genes_groups
@@ -186,7 +111,6 @@ def rank_genes_groups_by_enrichment(
     results = {}
 
     for group, df in data.uns[key].items():
-        # Get significant markers
         markers = df[df["pvals_adj"] < 0.05]["names"].tolist()
 
         if len(markers) == 0:
@@ -195,7 +119,6 @@ def rank_genes_groups_by_enrichment(
         enrichment_results = []
 
         for set_name, gene_set in gene_sets.items():
-            # Overlap
             overlap = set(markers) & set(gene_set) & set(background)
 
             # Hypergeometric test
@@ -260,51 +183,23 @@ def gsea_preranked(
     nperm: int = 1000,
     random_state: int = 0,
 ) -> Dict[str, float]:
-    """
-    Gene Set Enrichment Analysis on pre-ranked gene list.
-
-    Calculates enrichment score (ES) using the weighted Kolmogorov-Smirnov
-    statistic, similar to GSEA.
-
-    Parameters
-
-    ranked_genes : pd.DataFrame
-        DataFrame with 'names' and 'scores' columns (from rank_genes_groups).
-    gene_set : List[str]
-        Genes in the set to test.
-    weight : float, default: 1.0
-        Exponent for weighting the running sum (1.0 = classic GSEA).
-    nperm : int, default: 1000
-        Number of permutations for p-value estimation.
-    random_state : int, default: 0
-        Random seed.
-
-    Returns
-
-    Dict[str, float]
-        Dictionary with 'ES', 'NES', 'pval', 'leading_edge'.
-    """
 
     np.random.seed(random_state)
 
-    # Extract gene names and scores
     gene_names = ranked_genes["names"].values
     gene_scores = ranked_genes["scores"].values
 
-    # Filter to genes present in dataset
     gene_set_present = [g for g in gene_set if g in gene_names]
 
     if len(gene_set_present) == 0:
         return {"ES": 0, "NES": 0, "pval": 1.0, "n_genes": 0}
 
-    # Create indicator: 1 if gene in set, 0 otherwise
     in_set = np.array([g in gene_set_present for g in gene_names])
 
     N = len(gene_names)
     N_hit = in_set.sum()
     N_miss = N - N_hit
 
-    # Compute running enrichment score
     hit_scores = np.abs(gene_scores) ** weight * in_set
     miss_scores = 1 - in_set
 
@@ -312,23 +207,18 @@ def gsea_preranked(
     if hit_sum == 0:
         return {"ES": 0, "NES": 0, "pval": 1.0, "n_genes": N_hit}
 
-    # Cumulative sums
     cum_hit = np.cumsum(hit_scores / hit_sum)
     cum_miss = np.cumsum(miss_scores / N_miss)
 
     running_es = cum_hit - cum_miss
 
-    # Enrichment score = maximum deviation
     ES = running_es[np.abs(running_es).argmax()]
 
-    # Leading edge: genes before peak
     peak_idx = np.abs(running_es).argmax()
     leading_edge = gene_names[in_set][: peak_idx + 1]
 
-    # Permutation test for p-value
     es_null = []
     for _ in range(nperm):
-        # Shuffle gene set labels
         shuffled = np.random.permutation(in_set)
 
         hit_scores_perm = np.abs(gene_scores) ** weight * shuffled
@@ -347,7 +237,6 @@ def gsea_preranked(
 
     es_null = np.array(es_null)
 
-    # Normalize ES
     if ES >= 0:
         NES = ES / (es_null[es_null >= 0].mean() + 1e-10)
         pval = (es_null >= ES).sum() / len(es_null)
@@ -370,21 +259,6 @@ def load_gene_sets(
     organism: str = "human",
 ) -> Dict[str, List[str]]:
     """
-    Load pre-defined gene sets from databases.
-
-    Parameters
-
-    source : str, default: 'msigdb'
-        Gene set database ('msigdb', 'go', 'kegg').
-    categories : List[str], optional
-        MSigDB categories to load (e.g., ['HALLMARK', 'C2']).
-    organism : str, default: 'human'
-        Organism.
-
-    Returns
-
-    Dict[str, List[str]]
-        Dictionary of gene sets.
 
     Examples
 
@@ -393,7 +267,7 @@ def load_gene_sets(
 
     Note
 
-    This is a placeholder. For production, use:
+    This is a placeholder.
     - gseapy.get_library_name()
     - Or download GMT files from MSigDB
     """

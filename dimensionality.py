@@ -1,18 +1,23 @@
-from typing import Optional, Tuple, Union
+from __future__ import annotations
+
+import warnings
+from typing import Optional, Tuple
 
 import numpy as np
 import scipy.sparse as sp
-
-# Third-party libraries
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 
-# Handle optional UMAP dependency
 try:
-    import umap
+    import umap as _umap_mod
 except ImportError:
-    umap = None
+    _umap_mod = None
+
+try:
+    import phate as _phate_mod
+except ImportError:
+    _phate_mod = None
 
 from core import SingleCellDataset
 
@@ -24,57 +29,49 @@ def run_pca(
     svd_solver: str = "arpack",
     random_state: int = 0,
 ) -> SingleCellDataset:
-    """
-    Computes PCA (Principal Component Analysis).
-
-    Stores:
-        - Cell coordinates in data.obsm['X_pca']
-        - Gene loadings in data.varm['PCs']
-        - Variance info in data.uns['pca']
-    """
-    # Select features
     if use_highly_variable and "highly_variable" in data.var.columns:
-        print("PCA: Using highly variable genes.")
         mask = data.var["highly_variable"].values
-        X_subset = data.X[:, mask]
+        X_sub = data.X[:, mask]
+        print(f"PCA: using {int(mask.sum()):,} HVGs.")
     else:
-        X_subset = data.X
+        mask = None
+        X_sub = data.X
 
-    # Choose solver based on sparsity
-    if sp.issparse(X_subset):
-        print("PCA: Input is sparse, using TruncatedSVD.")
+    n_feat = X_sub.shape[1]
+    n_comp = min(n_components, n_feat - 1)  # sklearn constraint
+    if n_comp < n_components:
+        warnings.warn(
+            f"n_components={n_components} capped to {n_comp} "
+            f"(only {n_feat} features after HVG selection).",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    if sp.issparse(X_sub):
+        print("PCA: sparse input → TruncatedSVD.")
         pca = TruncatedSVD(
-            n_components=n_components, algorithm=svd_solver, random_state=random_state
+            n_components=n_comp, algorithm=svd_solver, random_state=random_state
         )
     else:
-        pca = PCA(
-            n_components=n_components, svd_solver=svd_solver, random_state=random_state
-        )
+        pca = PCA(n_components=n_comp, svd_solver=svd_solver, random_state=random_state)
 
-    # Fit and Transform
-    X_pca = pca.fit_transform(X_subset)
-
-    # Store results
+    X_pca = pca.fit_transform(X_sub)
     data.obsm["X_pca"] = X_pca
 
-    # Store loadings (Project back to full gene space if subset was used)
-    # TruncatedSVD components_: (n_components, n_features)
-    loadings = np.zeros((data.n_vars, n_components))
-
-    if use_highly_variable and "highly_variable" in data.var.columns:
+    loadings = np.zeros((data.n_vars, n_comp))
+    if mask is not None:
         loadings[mask, :] = pca.components_.T
     else:
         loadings = pca.components_.T
-
     data.varm["PCs"] = loadings
 
-    # Store variance ratio
     data.uns["pca"] = {
         "variance": pca.explained_variance_,
         "variance_ratio": pca.explained_variance_ratio_,
     }
 
-    print(f"PCA: Computed {n_components} components.")
+    cum_var = float(pca.explained_variance_ratio_.sum() * 100)
+    print(f"PCA: computed {n_comp} components " f"({cum_var:.1f}% variance explained).")
     return data
 
 
@@ -85,57 +82,46 @@ def neighbors(
     metric: str = "euclidean",
     random_state: int = 0,
 ) -> SingleCellDataset:
-    """
-    Computes a neighborhood graph of observations.
-
-    Stores:
-        - Distances in data.uns['neighbors']['distances']
-        - Connectivities in data.uns['neighbors']['connectivities']
-    """
     if "X_pca" not in data.obsm:
-        raise ValueError("Please run PCA before computing neighbors.")
+        raise ValueError(
+            "PCA embedding not found. " "Run dimensionality.run_pca() first."
+        )
 
     X = data.obsm["X_pca"]
     if n_pcs is not None:
         X = X[:, :n_pcs]
 
-    print(f"Neighbors: Computing kNN graph with k={n_neighbors}...")
-
-    # Fit Nearest Neighbors
+    print(f"Neighbors: k={n_neighbors}, metric='{metric}' …")
     nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric=metric, algorithm="auto")
     nbrs.fit(X)
-
-    # Returns (distances, indices)
-    distances, indices = nbrs.kneighbors(X)
-
-    # Construct sparse matrices for graph representation
-    # We create an adjacency matrix (n_obs x n_obs)
+    distances, indices = nbrs.kneighbors(X)  # (n_obs, k)
 
     n_obs = data.n_obs
-    row_indices = np.repeat(np.arange(n_obs), n_neighbors)
-    col_indices = indices.flatten()
-    data_vals = distances.flatten()
+    rows = np.repeat(np.arange(n_obs), n_neighbors)
+    cols = indices.flatten()
+    dists = distances.flatten()
 
-    # Distance matrix
-    dist_matrix = sp.csr_matrix(
-        (data_vals, (row_indices, col_indices)), shape=(n_obs, n_obs)
-    )
+    dist_matrix = sp.csr_matrix((dists, (rows, cols)), shape=(n_obs, n_obs))
 
-    # Connectivity matrix (binary or weighted by distance, usually 1 for kNN)
-    # Standard practice is to use connectivities weighted by Gaussian kernel (UMAP style),
-    # but for simple Louvain/Leiden, a binary kNN graph often suffices or 1/dist.
-    # Here we stick to a simple binary connectivity for the toolkit's simplicity.
-    conn_vals = np.ones_like(data_vals)
-    conn_matrix = sp.csr_matrix(
-        (conn_vals, (row_indices, col_indices)), shape=(n_obs, n_obs)
-    )
+    sigma = distances[:, -1]
+    sigma = np.maximum(sigma, 1e-10)
+    sigma_i = np.repeat(sigma, n_neighbors)
+    weights = np.exp(-(dists**2) / (sigma_i**2))
+
+    conn_matrix = sp.csr_matrix((weights, (rows, cols)), shape=(n_obs, n_obs))
+    conn_matrix = conn_matrix.maximum(conn_matrix.T)
 
     data.uns["neighbors"] = {
-        "params": {"n_neighbors": n_neighbors, "metric": metric},
+        "params": {
+            "n_neighbors": n_neighbors,
+            "metric": metric,
+            "n_pcs": n_pcs,
+        },
         "distances": dist_matrix,
         "connectivities": conn_matrix,
     }
 
+    print(f"Neighbors: graph built ({n_obs:,} cells).")
     return data
 
 
@@ -144,37 +130,39 @@ def run_tsne(
     n_pcs: Optional[int] = None,
     perplexity: float = 30.0,
     early_exaggeration: float = 12.0,
-    learning_rate: float = 200.0,
+    learning_rate: Union[float, str] = "auto",
+    n_iter: int = 1000,
     random_state: int = 0,
 ) -> SingleCellDataset:
-    """
-    Computes t-SNE embedding.
-
-    Stores:
-        - Coordinates in data.obsm['X_tsne']
-    """
     if "X_pca" not in data.obsm:
-        raise ValueError("Please run PCA before running t-SNE.")
+        raise ValueError("Run run_pca() before run_tsne().")
 
     X = data.obsm["X_pca"]
     if n_pcs is not None:
         X = X[:, :n_pcs]
 
-    print(f"t-SNE: Running with perplexity={perplexity}...")
+    max_perplexity = (X.shape[0] - 1) / 3.0
+    if perplexity > max_perplexity:
+        warnings.warn(
+            f"perplexity={perplexity} too large for {X.shape[0]} cells; "
+            f"clamped to {max_perplexity:.1f}.",
+            UserWarning,
+            stacklevel=2,
+        )
+        perplexity = max_perplexity
 
+    print(f"t-SNE: perplexity={perplexity:.1f}, n_iter={n_iter} …")
     tsne = TSNE(
         n_components=2,
         perplexity=perplexity,
         early_exaggeration=early_exaggeration,
         learning_rate=learning_rate,
+        max_iter=n_iter,  # <--- Change n_iter=n_iter to max_iter=n_iter
         random_state=random_state,
         init="pca",
         n_jobs=-1,
     )
-
-    X_tsne = tsne.fit_transform(X)
-    data.obsm["X_tsne"] = X_tsne
-
+    data.obsm["X_tsne"] = tsne.fit_transform(X)
     return data
 
 
@@ -183,38 +171,107 @@ def run_umap(
     n_pcs: Optional[int] = None,
     min_dist: float = 0.5,
     spread: float = 1.0,
+    n_components: int = 2,
     random_state: int = 0,
 ) -> SingleCellDataset:
-    """
-    Computes UMAP embedding.
-    Requires 'umap-learn' package.
-
-    Stores:
-        - Coordinates in data.obsm['X_umap']
-    """
-    if umap is None:
+    if _umap_mod is None:
         raise ImportError(
-            "umap-learn is not installed. Please install it via `pip install umap-learn`."
+            "umap-learn is required. Install with: pip install umap-learn"
         )
-
     if "X_pca" not in data.obsm:
-        raise ValueError("Please run PCA before running UMAP.")
+        raise ValueError("Run run_pca() before run_umap().")
 
     X = data.obsm["X_pca"]
     if n_pcs is not None:
         X = X[:, :n_pcs]
 
-    print(f"UMAP: Running with min_dist={min_dist}...")
-
-    reducer = umap.UMAP(
-        n_components=2,
+    print(f"UMAP: min_dist={min_dist}, n_components={n_components} …")
+    reducer = _umap_mod.UMAP(
+        n_components=n_components,
         min_dist=min_dist,
         spread=spread,
         random_state=random_state,
         metric="euclidean",
     )
-
-    X_umap = reducer.fit_transform(X)
-    data.obsm["X_umap"] = X_umap
-
+    data.obsm["X_umap"] = reducer.fit_transform(X)
     return data
+
+
+def run_diffmap(
+    data: SingleCellDataset,
+    n_components: int = 15,
+    alpha: float = 0.5,
+) -> SingleCellDataset:
+    if "neighbors" not in data.uns:
+        raise ValueError("Run neighbors() before run_diffmap().")
+
+    K = data.uns["neighbors"]["connectivities"].astype(float)
+
+    if alpha > 0:
+        q = np.ravel(K.sum(axis=1))
+        q = np.maximum(q, 1e-10)
+        D_alpha_inv = sp.diags(q ** (-alpha))
+        K = D_alpha_inv @ K @ D_alpha_inv
+
+    row_sums = np.ravel(K.sum(axis=1))
+    row_sums = np.maximum(row_sums, 1e-10)
+    T = sp.diags(1.0 / row_sums) @ K
+
+    print(f"Diffusion map: computing {n_components} components ...")
+
+    d_sqrt = np.sqrt(row_sums)
+    d_sqrt_inv = 1.0 / d_sqrt
+    M = sp.diags(d_sqrt) @ T @ sp.diags(d_sqrt_inv)
+
+    from scipy.sparse.linalg import eigsh
+
+    k = min(n_components + 1, M.shape[0] - 1)
+    eigenvalues, eigenvectors = eigsh(M.tocsr(), k=k, which="LM")
+
+    order = np.argsort(eigenvalues)[::-1]
+    eigenvalues = eigenvalues[order]
+    eigenvectors = eigenvectors[:, order]
+
+    phi = sp.diags(d_sqrt_inv).dot(eigenvectors)
+
+    data.obsm["X_diffmap"] = phi[:, 1 : n_components + 1].real
+    data.uns["diffmap_evals"] = eigenvalues[1 : n_components + 1].real
+
+    print(
+        f"Diffusion map: done.  "
+        f"Top eigenvalue gap: "
+        f"{eigenvalues[1]:.4f} → {eigenvalues[2]:.4f}."
+    )
+    return data
+
+
+def run_phate(
+    data: SingleCellDataset,
+    n_pcs: Optional[int] = None,
+    n_components: int = 2,
+    knn: int = 5,
+    random_state: int = 0,
+) -> SingleCellDataset:
+    if _phate_mod is None:
+        raise ImportError("phate is required. Install with: pip install phate")
+
+    if "X_pca" not in data.obsm:
+        raise ValueError("Run run_pca() before run_phate().")
+
+    X = data.obsm["X_pca"]
+    if n_pcs is not None:
+        X = X[:, :n_pcs]
+
+    print(f"PHATE: n_components={n_components}, knn={knn} …")
+    phate_op = _phate_mod.PHATE(
+        n_components=n_components,
+        knn=knn,
+        random_state=random_state,
+        n_jobs=-1,
+        verbose=False,
+    )
+    data.obsm["X_phate"] = phate_op.fit_transform(X)
+    return data
+
+
+from typing import Union

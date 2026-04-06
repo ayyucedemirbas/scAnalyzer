@@ -1,4 +1,6 @@
-from typing import Dict, Optional, Tuple, Union
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -12,164 +14,164 @@ from core import SingleCellDataset
 def rank_genes_groups(
     data: SingleCellDataset,
     groupby: str,
-    groups: Union[str, list] = "all",
+    groups: Union[str, List[str]] = "all",
     reference: str = "rest",
     method: str = "t-test",
     n_genes: Optional[int] = None,
     key_added: str = "rank_genes_groups",
     use_raw: bool = True,
 ) -> SingleCellDataset:
-    """
-    Rank genes for characterizing groups.
-
-    Args:
-        data: The SingleCellDataset.
-        groupby: The key of the observations grouping to consider.
-        groups: Subset of groups, e.g. ['g1', 'g2', 'g3'], to which comparison shall be restricted.
-        reference: If 'rest', compare each group to the union of the rest of the group.
-        method: 't-test', 'wilcoxon', or 'logreg'.
-        n_genes: The number of genes that appear in the returned tables.
-    """
-
     if groupby not in data.obs:
-        raise ValueError(f"groupby key '{groupby}' not found in obs.")
+        raise ValueError(
+            f"Column '{groupby}' not found in obs. "
+            f"Available: {list(data.obs.columns)}"
+        )
 
-    # Get labels
     labels = data.obs[groupby]
-    unique_labels = labels.unique()
+    unique_labels = np.asarray(labels.unique())
 
     if groups != "all":
-        unique_labels = [g for g in unique_labels if g in groups]
+        groups = list(groups)
+        missing = [g for g in groups if g not in unique_labels]
+        if missing:
+            raise ValueError(f"Groups not found in '{groupby}': {missing}")
+        unique_labels = np.asarray([g for g in unique_labels if g in groups])
 
-    # FIX: Handle data.raw being a SingleCellDataset object
     if use_raw and data.raw is not None:
-        if hasattr(data.raw, "X"):  # It's a SingleCellDataset
-            X = data.raw.X
-            # Use var names from raw if possible, else fall back
-            var_names = (
-                data.raw.var.index if hasattr(data.raw, "var") else data.var.index
-            )
-        else:  # It's just a matrix
-            X = data.raw
-            var_names = data.var.index
+        X_use = data.raw.X if hasattr(data.raw, "X") else data.raw
+        var_names = (
+            data.raw.var.index
+            if hasattr(data.raw, "var") and not callable(data.raw.var)
+            else data.var.index
+        )
     else:
-        X = data.X
+        X_use = data.X
         var_names = data.var.index
 
-    # Initialize results storage
-    results = {}
+    n_genes_total = X_use.shape[1]
+    is_sparse = sp.issparse(X_use)
 
     print(
-        f"Differential: Ranking genes for {len(unique_labels)} groups using {method}..."
+        f"Differential: Ranking genes for {len(unique_labels)} groups "
+        f"using {method} (use_raw={use_raw}) …"
     )
 
-    # Iterate over each group
+    results: Dict[str, pd.DataFrame] = {}
+
     for group in unique_labels:
-        print(f"  ... processing group {group}")
+        print(f"  … processing group '{group}'")
 
-        # Create masks
         group_mask = (labels == group).values
-
         if reference == "rest":
             rest_mask = ~group_mask
         else:
-            if reference not in unique_labels:
-                raise ValueError(f"Reference group {reference} not found.")
+            if reference not in unique_labels and reference not in labels.values:
+                raise ValueError(
+                    f"Reference group '{reference}' not found in '{groupby}'."
+                )
             rest_mask = (labels == reference).values
 
-        # Split data
-        X_group = X[group_mask, :]
-        X_rest = X[rest_mask, :]
+        X_g = X_use[group_mask, :]
+        X_r = X_use[rest_mask, :]
+        n_g = X_g.shape[0]
+        n_r = X_r.shape[0]
 
-        n_group = X_group.shape[0]
-        n_rest = X_rest.shape[0]
-
-        # Calculate basic stats (Mean, Pct)
-        if sp.issparse(X):
-            mean_group = np.ravel(X_group.mean(axis=0))
-            mean_rest = np.ravel(X_rest.mean(axis=0))
+        if is_sparse:
+            mean_g = np.ravel(X_g.mean(axis=0))
+            mean_r = np.ravel(X_r.mean(axis=0))
+            pct_g = np.ravel((X_g > 0).sum(axis=0)) / n_g
+            pct_r = np.ravel((X_r > 0).sum(axis=0)) / n_r
         else:
-            mean_group = np.mean(X_group, axis=0)
-            mean_rest = np.mean(X_rest, axis=0)
+            mean_g = X_g.mean(axis=0)
+            mean_r = X_r.mean(axis=0)
+            pct_g = (X_g > 0).mean(axis=0)
+            pct_r = (X_r > 0).mean(axis=0)
 
-        logfoldchanges = mean_group - mean_rest
+        lfc = mean_g - mean_r
 
-        # Percentage of cells expressing gene
-        if sp.issparse(X):
-            pct_group = np.ravel((X_group > 0).sum(axis=0)) / n_group
-            pct_rest = np.ravel((X_rest > 0).sum(axis=0)) / n_rest
-        else:
-            pct_group = np.count_nonzero(X_group, axis=0) / n_group
-            pct_rest = np.count_nonzero(X_rest, axis=0) / n_rest
-
-        # Statistical Tests
         if method == "t-test":
-            if sp.issparse(X):
-                mean_sq_group = np.ravel(X_group.power(2).mean(axis=0))
-                mean_sq_rest = np.ravel(X_rest.power(2).mean(axis=0))
-                var_group = mean_sq_group - mean_group**2
-                var_rest = mean_sq_rest - mean_rest**2
-            else:
-                var_group = np.var(X_group, axis=0)
-                var_rest = np.var(X_rest, axis=0)
-
-            var_group[var_group == 0] = 1e-12
-            var_rest[var_rest == 0] = 1e-12
-
-            denominator = np.sqrt((var_group / n_group) + (var_rest / n_rest))
-            t_scores = (mean_group - mean_rest) / denominator
-
-            pvals = 2 * stats.t.sf(np.abs(t_scores), df=(n_group + n_rest - 2))
+            scores, pvals = _vectorised_ttest(
+                X_g, X_r, mean_g, mean_r, is_sparse, n_g, n_r
+            )
 
         elif method == "wilcoxon":
-            X_csc = X.tocsc() if sp.issparse(X) else X
-            pvals = np.zeros(len(var_names))
-            scores = np.zeros(len(var_names))
-
-            for i in range(len(var_names)):
-                g_col = X_csc[:, i]
-                if sp.issparse(g_col):
-                    g_col = g_col.toarray().flatten()
-
-                x = g_col[group_mask]
-                y = g_col[rest_mask]
-
-                try:
-                    s, p = stats.ranksums(x, y)
-                    scores[i] = s
-                    pvals[i] = p
-                except ValueError:
-                    scores[i] = 0
-                    pvals[i] = 1.0
+            scores, pvals = _vectorised_wilcoxon(X_g, X_r, is_sparse)
 
         else:
-            raise ValueError("Method must be 't-test' or 'wilcoxon'.")
+            raise ValueError(f"method must be 't-test' or 'wilcoxon', got '{method}'.")
 
-        pvals[np.isnan(pvals)] = 1.0
+        pvals = np.where(np.isnan(pvals), 1.0, pvals)
+
         _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method="fdr_bh")
 
-        # Organise Result
         df = pd.DataFrame(
             {
                 "names": var_names,
-                "scores": t_scores if method == "t-test" else scores,
-                "logfoldchanges": logfoldchanges,
+                "scores": scores,
+                "logfoldchanges": lfc,
                 "pvals": pvals,
                 "pvals_adj": pvals_adj,
-                "pct_in": pct_group,
-                "pct_out": pct_rest,
+                "pct_in": pct_g,
+                "pct_out": pct_r,
             }
         )
+        df = df.sort_values("scores", ascending=False).reset_index(drop=True)
 
-        df = df.sort_values("scores", ascending=False)
-
-        if n_genes:
+        if n_genes is not None:
             df = df.head(n_genes)
 
-        results[group] = df
+        results[str(group)] = df
 
     data.uns[key_added] = results
     return data
+
+
+def _vectorised_ttest(X_g, X_r, mean_g, mean_r, is_sparse: bool, n_g: int, n_r: int):
+    if is_sparse:
+        var_g = np.ravel(X_g.power(2).mean(axis=0)) - mean_g**2
+        var_r = np.ravel(X_r.power(2).mean(axis=0)) - mean_r**2
+    else:
+        var_g = np.var(X_g, axis=0)
+        var_r = np.var(X_r, axis=0)
+
+    var_g = np.clip(var_g, 1e-12, None)
+    var_r = np.clip(var_r, 1e-12, None)
+
+    se = np.sqrt(var_g / n_g + var_r / n_r)
+    t_scores = (mean_g - mean_r) / se
+
+    df_welch = (var_g / n_g + var_r / n_r) ** 2 / (
+        (var_g / n_g) ** 2 / (n_g - 1) + (var_r / n_r) ** 2 / max(n_r - 1, 1)
+    )
+    pvals = 2 * stats.t.sf(np.abs(t_scores), df=df_welch)
+    return t_scores, pvals
+
+
+def _vectorised_wilcoxon(X_g, X_r, is_sparse: bool):
+    if is_sparse:
+        g_arr = X_g.toarray()
+        r_arr = X_r.toarray()
+    else:
+        g_arr = np.asarray(X_g)
+        r_arr = np.asarray(X_r)
+
+    n_g, n_genes = g_arr.shape
+    n_r = r_arr.shape[0]
+
+    combined = np.vstack([g_arr, r_arr])
+
+    from scipy.stats import rankdata
+
+    ranks = np.apply_along_axis(rankdata, 0, combined)
+
+    rank_sum_g = ranks[:n_g].sum(axis=0)
+    expected = n_g * (n_g + n_r + 1) / 2.0
+    std_dev = np.sqrt(n_g * n_r * (n_g + n_r + 1) / 12.0)
+
+    z_scores = (rank_sum_g - expected) / std_dev
+    pvals = 2 * stats.norm.sf(np.abs(z_scores))
+
+    return z_scores, pvals
 
 
 def get_marker_genes(
@@ -178,14 +180,22 @@ def get_marker_genes(
     key: str = "rank_genes_groups",
     pval_cutoff: float = 0.05,
     lfc_cutoff: float = 0.5,
+    top_n: Optional[int] = None,
 ) -> pd.DataFrame:
-    """
-    Retrieves the table of marker genes for a specific group, filtered by thresholds.
-    """
     if key not in data.uns:
-        raise ValueError(f"Key {key} not found in uns. Run rank_genes_groups first.")
+        raise ValueError(
+            f"Key '{key}' not found in uns. " "Run rank_genes_groups() first."
+        )
+    group = str(group)
+    if group not in data.uns[key]:
+        available = list(data.uns[key].keys())
+        raise ValueError(f"Group '{group}' not found. Available: {available}")
 
     df = data.uns[key][group]
-
     mask = (df["pvals_adj"] < pval_cutoff) & (df["logfoldchanges"] > lfc_cutoff)
-    return df[mask]
+    result = df[mask]
+
+    if top_n is not None:
+        result = result.head(top_n)
+
+    return result.reset_index(drop=True)

@@ -1,13 +1,8 @@
 import os
 import sys
 
-# Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-print("Checking scAnalyzer setup...")
-print("=" * 60)
-
-# Check core modules
 modules_to_check = [
     ("core", "Core data structure"),
     ("preprocessing", "Preprocessing functions"),
@@ -17,7 +12,6 @@ modules_to_check = [
     ("visualization", "Visualization functions"),
     ("sc_io", "Input/Output"),
     ("utils", "Utility functions"),
-    # New modules
     ("quality_control", "Quality control & doublet detection"),
     ("cell_cycle", "Cell cycle scoring"),
     ("batch_correction", "Batch correction"),
@@ -30,12 +24,12 @@ all_ok = True
 for module_name, description in modules_to_check:
     try:
         __import__(module_name)
-        print(f"✓ {module_name:20s} - {description}")
+        print(f"{module_name:20s} - {description}")
     except ImportError as e:
-        print(f"✗ {module_name:20s} - MISSING: {e}")
+        print(f"{module_name:20s} - MISSING: {e}")
         all_ok = False
     except Exception as e:
-        print(f"✗ {module_name:20s} - ERROR: {e}")
+        print(f"{module_name:20s} - ERROR: {e}")
         all_ok = False
 
 print("=" * 60)

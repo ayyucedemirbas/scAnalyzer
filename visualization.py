@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from typing import List, Optional, Tuple, Union
 
-import matplotlib.patheffects as PathEffects  # <--- Added explicit import
+import matplotlib
+import matplotlib.patheffects as PathEffects
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -9,37 +12,49 @@ import seaborn as sns
 
 from core import SingleCellDataset
 
-# Set default aesthetic
 sns.set_theme(style="white", context="paper")
 
+_PVAL_FLOOR = 1e-300
 
-def _get_color_data(data: SingleCellDataset, color_key: str):
-    """
-    Helper to extract color data (gene expression or metadata) for plotting.
-    Returns: values (array), is_categorical (bool), label (str)
-    """
-    # 1. Check in obs (metadata/clusters)
+
+def _get_color_data(
+    data: SingleCellDataset, color_key: str
+) -> Tuple[np.ndarray, bool, str]:
     if color_key in data.obs.columns:
-        values = data.obs[color_key].values
-        is_categorical = pd.api.types.is_categorical_dtype(
+        vals = data.obs[color_key].values
+        is_cat = pd.api.types.is_categorical_dtype(
             data.obs[color_key]
         ) or pd.api.types.is_object_dtype(data.obs[color_key])
-        return values, is_categorical, color_key
+        return vals, is_cat, color_key
 
-    # 2. Check in var (gene expression)
     if color_key in data.var.index:
-        # Locate gene index
-        gene_idx = data.var.index.get_loc(color_key)
-
-        # Extract column
+        gi = data.var.index.get_loc(color_key)
         if sp.issparse(data.X):
-            values = data.X[:, gene_idx].toarray().flatten()
+            vals = data.X[:, gi].toarray().flatten()
         else:
-            values = data.X[:, gene_idx]
+            vals = np.asarray(data.X[:, gi]).flatten()
+        return vals, False, color_key
 
-        return values, False, color_key  # Gene expression is continuous
+    obs_cols = list(data.obs.columns)
+    n_genes = data.n_vars
+    raise ValueError(
+        f"Key '{color_key}' not found in obs columns or gene names. "
+        f"obs columns: {obs_cols[:10]}{'…' if len(obs_cols) > 10 else ''}; "
+        f"dataset has {n_genes:,} genes."
+    )
 
-    raise ValueError(f"Key '{color_key}' not found in obs or var_names.")
+
+def _maybe_show_or_save(
+    fig: plt.Figure,
+    save: Optional[str],
+    ax_provided: bool,
+) -> None:
+    if save:
+        fig.savefig(save, bbox_inches="tight", dpi=300)
+        print(f"Saved → {save}")
+    if not save and not ax_provided:
+        plt.show()
+    plt.close(fig)
 
 
 def plot_embedding(
@@ -54,98 +69,90 @@ def plot_embedding(
     legend_loc: str = "right margin",
     ax: Optional[plt.Axes] = None,
     save: Optional[str] = None,
-):
-    """
-    Generic plotter for 2D embeddings (UMAP, t-SNE, PCA).
-    """
+) -> plt.Axes:
     if basis not in data.obsm:
-        raise ValueError(f"{basis} not found in data.obsm.")
+        available = list(data.obsm.keys())
+        raise ValueError(f"'{basis}' not found in obsm. Available: {available}")
 
-    # Get coordinates
     coords = data.obsm[basis]
     x, y = coords[:, 0], coords[:, 1]
 
-    if ax is None:
+    ax_provided = ax is not None
+    if not ax_provided:
         fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
 
-    # Handle coloring
     if color:
         values, is_cat, label = _get_color_data(data, color)
 
         if is_cat:
-            # Categorical plot (e.g., clusters)
-            df_plot = pd.DataFrame({"x": x, "y": y, "category": values})
+            df_plot = pd.DataFrame({"x": x, "y": y, "cat": values})
             sns.scatterplot(
                 data=df_plot,
                 x="x",
                 y="y",
-                hue="category",
+                hue="cat",
                 s=s,
                 alpha=alpha,
                 ax=ax,
                 palette="tab20",
-                edgecolor=None,
+                linewidth=0,
             )
             if legend_loc == "right margin":
-                ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
+                ax.legend(
+                    bbox_to_anchor=(1.05, 1),
+                    loc="upper left",
+                    borderaxespad=0.0,
+                    frameon=False,
+                )
             elif legend_loc == "on data":
                 ax.legend().remove()
                 for cat in np.unique(values):
                     mask = values == cat
                     cx, cy = np.mean(x[mask]), np.mean(y[mask])
-                    # Add text with white outline for readability
                     txt = ax.text(
                         cx,
                         cy,
                         str(cat),
-                        fontsize=12,
+                        fontsize=9,
                         fontweight="bold",
                         ha="center",
                         va="center",
                         color="black",
                     )
-                    # Use the explicitly imported PathEffects
                     txt.set_path_effects(
                         [PathEffects.withStroke(linewidth=3, foreground="white")]
                     )
-
+            else:
+                ax.legend(loc=legend_loc, frameon=False)
         else:
-            # Continuous plot (e.g., gene expression)
-            sc = ax.scatter(x, y, c=values, s=s, cmap=cmap, alpha=alpha, edgecolor=None)
+            sc = ax.scatter(x, y, c=values, s=s, cmap=cmap, alpha=alpha, linewidths=0)
             plt.colorbar(sc, ax=ax, label=label, fraction=0.046, pad=0.04)
-
     else:
-        # No color
-        ax.scatter(x, y, s=s, alpha=alpha, c="gray")
+        ax.scatter(x, y, s=s, alpha=alpha, c="steelblue", linewidths=0)
 
-    ax.set_xlabel(f"{basis}_1")
-    ax.set_ylabel(f"{basis}_2")
-    ax.set_title(
-        title if title else f"{basis} colored by {color if color else 'index'}"
-    )
-
-    # Clean spines
+    ax.set_xlabel(f"{basis} 1", labelpad=4)
+    ax.set_ylabel(f"{basis} 2", labelpad=4)
+    ax.set_title(title or (f"{basis}" + (f" — {color}" if color else "")))
     sns.despine(ax=ax)
 
-    # Save logic
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
+    if not ax_provided:
+        _maybe_show_or_save(fig, save, ax_provided)
 
-    if ax is None:
-        plt.show()
+    return ax
 
 
-def plot_umap(data, **kwargs):
-    plot_embedding(data, basis="X_umap", **kwargs)
+def plot_umap(data: SingleCellDataset, **kwargs) -> plt.Axes:
+    return plot_embedding(data, basis="X_umap", **kwargs)
 
 
-def plot_tsne(data, **kwargs):
-    plot_embedding(data, basis="X_tsne", **kwargs)
+def plot_tsne(data: SingleCellDataset, **kwargs) -> plt.Axes:
+    return plot_embedding(data, basis="X_tsne", **kwargs)
 
 
-def plot_pca(data, **kwargs):
-    plot_embedding(data, basis="X_pca", **kwargs)
+def plot_pca(data: SingleCellDataset, **kwargs) -> plt.Axes:
+    return plot_embedding(data, basis="X_pca", **kwargs)
 
 
 def plot_violin(
@@ -153,46 +160,42 @@ def plot_violin(
     keys: Union[str, List[str]],
     groupby: str,
     rotation: int = 90,
+    figsize: Optional[Tuple[int, int]] = None,
     save: Optional[str] = None,
-):
-    """
-    Violin plot of gene expression or metadata per group.
-    """
+) -> plt.Figure:
     if isinstance(keys, str):
         keys = [keys]
 
-    # Prepare data
-    plot_data = []
     groups = data.obs[groupby].values
-
+    rows = []
     for key in keys:
         vals, _, _ = _get_color_data(data, key)
-        df_temp = pd.DataFrame({"Expression": vals, "Group": groups, "Gene": key})
-        plot_data.append(df_temp)
+        rows.append(pd.DataFrame({"Expression": vals, "Group": groups, "Feature": key}))
 
-    final_df = pd.concat(plot_data)
+    plot_df = pd.concat(rows, ignore_index=True)
 
-    plt.figure(figsize=(len(keys) * 2 + 2, 6))
+    if figsize is None:
+        figsize = (max(4, len(np.unique(groups)) * len(keys) * 0.6 + 1), 5)
 
+    fig, ax = plt.subplots(figsize=figsize)
+
+    hue_col = "Feature" if len(keys) > 1 else None
     sns.violinplot(
-        data=final_df,
+        data=plot_df,
         x="Group",
         y="Expression",
-        hue="Gene",
-        split=False,
+        hue=hue_col,
         inner="quartile",
         density_norm="width",
+        ax=ax,
     )
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation)
+    ax.set_title(f"{', '.join(keys)} by {groupby}")
+    sns.despine(ax=ax)
+    fig.tight_layout()
 
-    plt.xticks(rotation=rotation)
-    plt.title(f"Expression of {', '.join(keys)} by {groupby}")
-    plt.tight_layout()
-
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
-
-    plt.show()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig
 
 
 def plot_heatmap(
@@ -202,53 +205,48 @@ def plot_heatmap(
     use_raw: bool = False,
     standard_scale: str = "var",
     cmap: str = "viridis",
+    figsize: Optional[Tuple[int, int]] = None,
     save: Optional[str] = None,
-):
-    """
-    Plots a heatmap of the mean expression per group.
-    """
+) -> plt.Figure:
     if groupby not in data.obs:
-        raise ValueError(f"Group {groupby} not found.")
+        raise ValueError(f"'{groupby}' not in obs. Available: {list(data.obs.columns)}")
 
-    valid_vars = [v for v in var_names if v in data.var.index]
-    var_indices = [data.var.index.get_loc(v) for v in valid_vars]
+    valid = [v for v in var_names if v in data.var.index]
+    if not valid:
+        raise ValueError("None of the requested var_names found in data.")
+    idx = [data.var.index.get_loc(v) for v in valid]
 
-    if use_raw and data.raw is not None:
-        raw_X = data.raw.X if hasattr(data.raw, "X") else data.raw
-        X_subset = raw_X[:, var_indices]
-    else:
-        X_subset = data.X[:, var_indices]
-
-    if sp.issparse(X_subset):
-        X_subset = X_subset.toarray()
+    src = (
+        (data.raw.X if hasattr(data.raw, "X") else data.raw)
+        if (use_raw and data.raw is not None)
+        else data.X
+    )
+    X_sub = src[:, idx]
+    if sp.issparse(X_sub):
+        X_sub = X_sub.toarray()
 
     groups = data.obs[groupby]
-    unique_groups = np.sort(groups.unique())
-
-    mean_expression = []
-
-    for g in unique_groups:
-        mask = (groups == g).values
-        mean_expr = np.mean(X_subset[mask, :], axis=0)
-        mean_expression.append(mean_expr)
-
-    heatmap_data = np.array(mean_expression)
-    df_heatmap = pd.DataFrame(heatmap_data, index=unique_groups, columns=valid_vars)
+    ug = np.sort(groups.unique())
+    means = np.vstack([X_sub[(groups == g).values].mean(axis=0) for g in ug])
+    df_hm = pd.DataFrame(means, index=ug, columns=valid)
 
     if standard_scale == "var":
-        df_heatmap = (df_heatmap - df_heatmap.mean()) / df_heatmap.std()
+        mu = df_hm.mean()
+        sd = df_hm.std().replace(0, 1)
+        df_hm = (df_hm - mu) / sd
 
-    plt.figure(figsize=(len(valid_vars) * 0.5 + 2, len(unique_groups) * 0.5 + 2))
-    sns.heatmap(df_heatmap, cmap=cmap, xticklabels=True, yticklabels=True)
-    plt.title(f"Mean expression by {groupby}")
-    plt.xlabel("Genes")
-    plt.ylabel(groupby)
+    if figsize is None:
+        figsize = (max(4, len(valid) * 0.5 + 2), max(3, len(ug) * 0.5 + 1))
 
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(df_hm, cmap=cmap, ax=ax, xticklabels=True, yticklabels=True)
+    ax.set_title(f"Mean expression by {groupby}")
+    ax.set_xlabel("Genes")
+    ax.set_ylabel(groupby)
+    fig.tight_layout()
 
-    plt.show()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig
 
 
 def plot_dotplot(
@@ -257,71 +255,60 @@ def plot_dotplot(
     groupby: str,
     cmap: str = "Reds",
     standard_scale: bool = True,
+    figsize: Optional[Tuple[int, int]] = None,
     save: Optional[str] = None,
-):
-    """
-    Dotplot visualization.
-    """
+) -> plt.Figure:
     if groupby not in data.obs:
-        raise ValueError(f"Group {groupby} not found.")
+        raise ValueError(f"'{groupby}' not in obs.")
 
-    valid_vars = [v for v in var_names if v in data.var.index]
-    var_indices = [data.var.index.get_loc(v) for v in valid_vars]
-
-    X_subset = data.X[:, var_indices]
-    if sp.issparse(X_subset):
-        X_subset = X_subset.toarray()
+    valid = [v for v in var_names if v in data.var.index]
+    idx = [data.var.index.get_loc(v) for v in valid]
+    X_sub = data.X[:, idx]
+    if sp.issparse(X_sub):
+        X_sub = X_sub.toarray()
 
     groups = data.obs[groupby]
-    unique_groups = np.sort(groups.unique())
+    ug = np.sort(groups.unique())
 
-    rows, cols, fraction, mean_expr = [], [], [], []
-
-    for i, g in enumerate(unique_groups):
+    rows = []
+    for g in ug:
         mask = (groups == g).values
-        group_data = X_subset[mask, :]
+        gd = X_sub[mask]
+        frac = (gd > 0).mean(axis=0)
+        mu = gd.mean(axis=0)
+        for j, v in enumerate(valid):
+            rows.append({"Group": g, "Gene": v, "Fraction": frac[j], "MeanExpr": mu[j]})
 
-        frac = np.count_nonzero(group_data, axis=0) / group_data.shape[0]
-        mu = np.mean(group_data, axis=0)
-
-        for j, v in enumerate(valid_vars):
-            rows.append(g)
-            cols.append(v)
-            fraction.append(frac[j])
-            mean_expr.append(mu[j])
-
-    df_dot = pd.DataFrame(
-        {"Group": rows, "Gene": cols, "Fraction": fraction, "MeanExpression": mean_expr}
-    )
+    df = pd.DataFrame(rows)
 
     if standard_scale:
-        df_dot["MeanExpression"] = df_dot.groupby("Gene")["MeanExpression"].transform(
+        df["MeanExpr"] = df.groupby("Gene")["MeanExpr"].transform(
             lambda x: (x - x.min()) / (x.max() - x.min() + 1e-12)
         )
 
-    plt.figure(figsize=(len(valid_vars) * 0.8 + 1, len(unique_groups) * 0.5 + 1))
+    if figsize is None:
+        figsize = (max(4, len(valid) * 0.8 + 1), max(3, len(ug) * 0.5 + 1))
 
-    sns.scatterplot(
-        data=df_dot,
-        x="Gene",
-        y="Group",
-        size="Fraction",
-        hue="MeanExpression",
-        sizes=(20, 200),
-        palette=cmap,
-        marker="o",
+    fig, ax = plt.subplots(figsize=figsize)
+    scatter = ax.scatter(
+        df["Gene"],
+        df["Group"],
+        s=df["Fraction"] * 400,
+        c=df["MeanExpr"],
+        cmap=cmap,
+        alpha=0.9,
+        linewidths=0.3,
+        edgecolors="grey",
     )
+    plt.colorbar(scatter, ax=ax, label="Scaled mean expr", fraction=0.03, pad=0.04)
+    ax.set_xlabel("Genes")
+    ax.set_ylabel(groupby)
+    ax.set_title(f"Dotplot — {groupby}")
+    ax.grid(True, linestyle="--", alpha=0.25)
+    fig.tight_layout()
 
-    plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0)
-    plt.title(f"Dotplot by {groupby}")
-    plt.grid(True, linestyle="--", alpha=0.3)
-    plt.tight_layout()
-
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
-
-    plt.show()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig
 
 
 def volcano_plot(
@@ -333,174 +320,104 @@ def volcano_plot(
     top_n_genes: int = 10,
     figsize: Tuple[int, int] = (8, 6),
     save: Optional[str] = None,
-):
-    """
-    Volcano plot for differential expression results.
-
-    Parameters
-    ----------
-    data : SingleCellDataset
-        Dataset with DE results.
-    group : str
-        Which group to plot results for.
-    key : str, default: 'rank_genes_groups'
-        Key in uns containing DE results.
-    pval_threshold : float, default: 0.05
-        Significance threshold for adjusted p-value.
-    lfc_threshold : float, default: 0.5
-        Log fold change threshold.
-    top_n_genes : int, default: 10
-        Number of top genes to label.
-    figsize : tuple, default: (8, 6)
-        Figure size.
-    save : str, optional
-        Path to save figure.
-    """
-
+) -> plt.Figure:
     if key not in data.uns:
-        raise ValueError(f"{key} not found. Run rank_genes_groups() first.")
-
+        raise ValueError(f"'{key}' not found. Run rank_genes_groups() first.")
+    group = str(group)
     if group not in data.uns[key]:
-        raise ValueError(f"Group {group} not found in {key}.")
+        raise ValueError(f"Group '{group}' not found in '{key}'.")
 
     df = data.uns[key][group].copy()
+    df["neg_log10_pval"] = -np.log10(df["pvals_adj"].clip(lower=_PVAL_FLOOR))
 
-    # Prepare data
-    df["-log10(pval)"] = -np.log10(df["pvals_adj"] + 1e-300)  # Avoid log(0)
-
-    # Color categories
-    df["category"] = "Not significant"
-    df.loc[
+    cat = np.where(
         (df["pvals_adj"] < pval_threshold) & (df["logfoldchanges"] > lfc_threshold),
-        "category",
-    ] = "Up-regulated"
-    df.loc[
-        (df["pvals_adj"] < pval_threshold) & (df["logfoldchanges"] < -lfc_threshold),
-        "category",
-    ] = "Down-regulated"
-
-    # Plot
-    fig, ax = plt.subplots(figsize=figsize)
-
-    colors = {
-        "Not significant": "gray",
-        "Up-regulated": "red",
-        "Down-regulated": "blue",
-    }
-
-    for cat in ["Not significant", "Down-regulated", "Up-regulated"]:
-        subset = df[df["category"] == cat]
-        ax.scatter(
-            subset["logfoldchanges"],
-            subset["-log10(pval)"],
-            c=colors[cat],
-            alpha=0.6,
-            s=10,
-            label=cat,
-        )
-
-    # Add threshold lines
-    ax.axhline(
-        -np.log10(pval_threshold),
-        color="black",
-        linestyle="--",
-        linewidth=0.8,
-        alpha=0.5,
+        "Up",
+        np.where(
+            (df["pvals_adj"] < pval_threshold)
+            & (df["logfoldchanges"] < -lfc_threshold),
+            "Down",
+            "NS",
+        ),
     )
-    ax.axvline(lfc_threshold, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.axvline(-lfc_threshold, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    df["category"] = cat
 
-    # Label top genes
-    significant = df[df["category"] != "Not significant"].sort_values("pvals_adj")
-    for i, row in significant.head(top_n_genes).iterrows():
-        ax.text(
-            row["logfoldchanges"],
-            row["-log10(pval)"],
-            row["names"],
-            fontsize=8,
-            alpha=0.8,
+    colours = {"NS": "#AAAAAA", "Up": "#E74C3C", "Down": "#3498DB"}
+
+    fig, ax = plt.subplots(figsize=figsize)
+    for c, col in colours.items():
+        sub = df[df["category"] == c]
+        ax.scatter(
+            sub["logfoldchanges"],
+            sub["neg_log10_pval"],
+            c=col,
+            s=8,
+            alpha=0.6,
+            label=c,
+            linewidths=0,
         )
 
-    ax.set_xlabel("Log Fold Change", fontsize=12)
-    ax.set_ylabel("-log10(Adjusted P-value)", fontsize=12)
-    ax.set_title(f"Volcano Plot: {group}", fontsize=14)
-    ax.legend()
+    ax.axhline(-np.log10(pval_threshold), color="black", lw=0.8, ls="--", alpha=0.5)
+    ax.axvline(lfc_threshold, color="black", lw=0.8, ls="--", alpha=0.5)
+    ax.axvline(-lfc_threshold, color="black", lw=0.8, ls="--", alpha=0.5)
 
-    sns.despine()
-    plt.tight_layout()
+    sig = df[df["category"] != "NS"].nsmallest(top_n_genes, "pvals_adj")
+    for _, row in sig.iterrows():
+        ax.text(
+            row["logfoldchanges"] + 0.02,
+            row["neg_log10_pval"],
+            row["names"],
+            fontsize=7,
+            alpha=0.85,
+        )
 
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
+    ax.set_xlabel("Log₂ Fold Change")
+    ax.set_ylabel("−log₁₀ Adjusted P-value")
+    ax.set_title(f"Volcano — group '{group}'")
+    ax.legend(frameon=False)
+    sns.despine(ax=ax)
+    fig.tight_layout()
 
-    plt.show()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig
 
 
 def plot_qc_violin(
     data: SingleCellDataset,
-    metrics: List[str] = None,
+    metrics: Optional[List[str]] = None,
     groupby: Optional[str] = None,
     figsize: Tuple[int, int] = (12, 4),
     save: Optional[str] = None,
-):
-    """
-    Violin plots for QC metrics.
-
-    Parameters
-    ----------
-    data : SingleCellDataset
-        Dataset with QC metrics calculated.
-    metrics : List[str], optional
-        List of metrics to plot. If None, uses default metrics.
-    groupby : str, optional
-        Group by this column (e.g., 'batch').
-    figsize : tuple, default: (12, 4)
-        Figure size.
-    save : str, optional
-        Path to save figure.
-    """
-
+) -> plt.Figure:
     if metrics is None:
-        # Default metrics
-        available = ["n_genes_by_counts", "total_counts"]
         pct_cols = [c for c in data.obs.columns if c.startswith("pct_counts_")]
-        metrics = available + pct_cols
-        metrics = [m for m in metrics if m in data.obs.columns]
+        metrics = [
+            c
+            for c in ["n_genes_by_counts", "total_counts"] + pct_cols
+            if c in data.obs.columns
+        ]
+    if not metrics:
+        raise ValueError("No QC metrics found. Run calculate_qc_metrics() first.")
 
-    if len(metrics) == 0:
-        raise ValueError("No metrics found. Run calculate_qc_metrics() first.")
-
-    n_metrics = len(metrics)
-    fig, axes = plt.subplots(1, n_metrics, figsize=figsize)
-
-    if n_metrics == 1:
+    fig, axes = plt.subplots(1, len(metrics), figsize=figsize)
+    if len(metrics) == 1:
         axes = [axes]
 
-    for i, metric in enumerate(metrics):
-        ax = axes[i]
-
+    for ax, metric in zip(axes, metrics):
         if groupby and groupby in data.obs.columns:
-            # Grouped violin
-            plot_data = pd.DataFrame(
-                {"value": data.obs[metric], "group": data.obs[groupby]}
-            )
-            sns.violinplot(data=plot_data, x="group", y="value", ax=ax)
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+            pdata = pd.DataFrame({"v": data.obs[metric], "g": data.obs[groupby]})
+            sns.violinplot(data=pdata, x="g", y="v", ax=ax)
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
         else:
-            # Single violin
             sns.violinplot(y=data.obs[metric], ax=ax, color="lightblue")
-
         ax.set_title(metric)
-        ax.set_ylabel("Value")
+        ax.set_ylabel("")
         ax.set_xlabel("")
+        sns.despine(ax=ax)
 
-    plt.tight_layout()
-
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
-
-    plt.show()
+    fig.tight_layout()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig
 
 
 def plot_highest_expr_genes(
@@ -508,50 +425,24 @@ def plot_highest_expr_genes(
     n_top: int = 20,
     figsize: Tuple[int, int] = (6, 8),
     save: Optional[str] = None,
-):
-    """
-    Bar plot of genes with highest expression.
-
-    Parameters
-    ----------
-    data : SingleCellDataset
-        Annotated data matrix.
-    n_top : int, default: 20
-        Number of top genes to show.
-    figsize : tuple, default: (6, 8)
-        Figure size.
-    save : str, optional
-        Path to save figure.
-    """
-
+) -> plt.Figure:
     X = data.X
+    gene_means = np.ravel(X.mean(axis=0)) if sp.issparse(X) else X.mean(axis=0)
 
-    # Calculate mean expression per gene
-    if sp.issparse(X):
-        gene_means = np.ravel(X.mean(axis=0))
-    else:
-        gene_means = X.mean(axis=0)
+    top_idx = np.argsort(gene_means)[::-1][:n_top]
+    top_genes = data.var.index[top_idx]
+    top_vals = gene_means[top_idx]
 
-    # Get top genes
-    top_indices = np.argsort(gene_means)[::-1][:n_top]
-    top_genes = data.var.index[top_indices]
-    top_values = gene_means[top_indices]
-
-    # Plot
     fig, ax = plt.subplots(figsize=figsize)
-
-    y_pos = np.arange(len(top_genes))
-    ax.barh(y_pos, top_values, color="steelblue")
-    ax.set_yticks(y_pos)
+    y = np.arange(len(top_genes))
+    ax.barh(y, top_vals, color="steelblue")
+    ax.set_yticks(y)
     ax.set_yticklabels(top_genes)
     ax.invert_yaxis()
     ax.set_xlabel("Mean Expression")
     ax.set_title(f"Top {n_top} Highest Expressed Genes")
+    sns.despine(ax=ax)
+    fig.tight_layout()
 
-    plt.tight_layout()
-
-    if save:
-        plt.savefig(save, bbox_inches="tight", dpi=300)
-        print(f"Saved plot to {save}")
-
-    plt.show()
+    _maybe_show_or_save(fig, save, ax_provided=False)
+    return fig

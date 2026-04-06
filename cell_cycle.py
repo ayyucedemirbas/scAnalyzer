@@ -110,7 +110,6 @@ G2M_GENES_HUMAN = [
     "CENPA",
 ]
 
-# Mouse orthologs
 S_GENES_MOUSE = [g.capitalize() for g in S_GENES_HUMAN]
 G2M_GENES_MOUSE = [g.capitalize() for g in G2M_GENES_HUMAN]
 
@@ -123,9 +122,6 @@ def score_genes(
     random_state: int = 0,
     use_raw: bool = False,
 ) -> np.ndarray:
-    """
-    Calculate per-cell score for a gene set.
-    """
     np.random.seed(random_state)
 
     # 1. Get expression matrix
@@ -140,7 +136,6 @@ def score_genes(
         X = data.X
         var_names = data.var.index
 
-    # 2. Identify target genes
     gene_list_found = [g for g in gene_list if g in var_names]
 
     if len(gene_list_found) == 0:
@@ -148,33 +143,26 @@ def score_genes(
 
     gene_indices = [var_names.get_loc(g) for g in gene_list_found]
 
-    # 3. Calculate means for binning
     if sp.issparse(X):
         gene_means = np.ravel(X.mean(axis=0))
     else:
         gene_means = X.mean(axis=0)
 
-    # 4. Create bins
-    # Handle edge case where all genes have identical expression (synthetic data)
     if np.std(gene_means) < 1e-6:
         gene_bins = np.zeros(len(gene_means), dtype=int)
     else:
-        # Use simple equal-frequency binning if possible, else standard cut
         try:
             gene_bins = pd.qcut(gene_means, q=n_bins, labels=False, duplicates="drop")
         except:
             gene_bins = pd.cut(gene_means, bins=n_bins, labels=False)
 
-        # Fill NaNs
         if np.any(pd.isna(gene_bins)):
             gene_bins = np.nan_to_num(gene_bins, nan=0).astype(int)
 
-    # 5. Select Control Genes
     ctrl_genes = []
     all_indices = np.arange(len(var_names))
     non_target_indices = np.setdiff1d(all_indices, gene_indices)
 
-    # If dataset is too small (e.g. only target genes exist), return 0 scores
     if len(non_target_indices) == 0:
         return np.zeros(data.n_obs)
 
@@ -184,30 +172,22 @@ def score_genes(
 
         gene_bin = gene_bins[gene_idx]
 
-        # Strategy A: Same bin
         candidates = non_target_indices[gene_bins[non_target_indices] == gene_bin]
 
-        # Strategy B: Adjacent bins
         if len(candidates) == 0:
             candidates = non_target_indices[
                 np.abs(gene_bins[non_target_indices] - gene_bin) <= 1
             ]
 
-        # Strategy C: NUCLEAR OPTION (Random sampling from all non-targets)
-        # This guarantees we always have controls if the dataset allows
         if len(candidates) == 0:
             candidates = non_target_indices
 
-        # Sample
         if len(candidates) > 0:
             n_select = min(ctrl_size, len(candidates))
             selected = np.random.choice(candidates, n_select, replace=False)
             ctrl_genes.extend(selected)
 
-    # 6. Calculate Score
-    # Final safety check
     if len(ctrl_genes) == 0:
-        # Should be mathematically impossible given Strategy C, unless dataset = gene_list
         return np.zeros(data.n_obs)
 
     ctrl_genes = np.array(ctrl_genes, dtype=int)
@@ -232,14 +212,12 @@ def score_cell_cycle(
     random_state: int = 0,
     use_raw: bool = False,
 ) -> SingleCellDataset:
-    """Score cells for cell cycle phase."""
 
     if s_genes is None:
         s_genes = S_GENES_HUMAN if organism == "human" else S_GENES_MOUSE
     if g2m_genes is None:
         g2m_genes = G2M_GENES_HUMAN if organism == "human" else G2M_GENES_MOUSE
 
-    # Calculate scores
     s_score = score_genes(
         data, s_genes, ctrl_size=ctrl_size, random_state=random_state, use_raw=use_raw
     )
@@ -250,14 +228,11 @@ def score_cell_cycle(
     data.obs["S_score"] = s_score
     data.obs["G2M_score"] = g2m_score
 
-    # Assign phases
     phases = np.array(["G1"] * data.n_obs)
 
-    # S phase: S > 0 and S > G2M
     s_mask = (s_score > 0) & (s_score > g2m_score)
     phases[s_mask] = "S"
 
-    # G2M phase: G2M > 0 and G2M >= S
     g2m_mask = (g2m_score > 0) & (g2m_score >= s_score)
     phases[g2m_mask] = "G2M"
 
@@ -273,7 +248,6 @@ def regress_out_cell_cycle(
     organism: str = "human",
     difference_only: bool = True,
 ) -> SingleCellDataset:
-    """Regress out cell cycle effects."""
 
     if "S_score" not in data.obs.columns:
         score_cell_cycle(data, s_genes, g2m_genes, organism)

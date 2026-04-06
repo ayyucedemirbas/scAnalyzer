@@ -1,7 +1,3 @@
-"""
-Example with PBMC 3k (Clean Single-Sample Pipeline)
-"""
-
 import os
 import shutil
 import sys
@@ -11,7 +7,6 @@ import urllib.request
 import numpy as np
 import pandas as pd
 
-# Import core modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cell_cycle as cc
@@ -21,14 +16,11 @@ import dimensionality as dim
 import enrichment as enrich
 import interactive_viz as iviz
 import preprocessing as pp
-
-# Import extended modules
 import quality_control as qc
 import sc_io as io
 import visualization as vis
 from core import SingleCellDataset
 
-# Dataset configuration
 DATA_URL = "https://cf.10xgenomics.com/samples/cell-exp/1.1.0/pbmc3k/pbmc3k_filtered_gene_bc_matrices.tar.gz"
 DATA_DIR = "./data"
 FILENAME = "pbmc3k.tar.gz"
@@ -36,10 +28,6 @@ EXTRACT_DIR = "filtered_gene_bc_matrices/hg19"
 
 
 def download_and_extract_data():
-    """
-    Downloads the PBMC 3k dataset from 10x Genomics and extracts it.
-    Includes User-Agent headers to prevent HTTP 403 Forbidden errors.
-    """
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
 
@@ -83,23 +71,19 @@ def download_and_extract_data():
 def main():
     print("Extended scAnalyzer Pipeline: PBMC 3k Dataset")
 
-    # 1. Load Data
     data_path = download_and_extract_data()
     if data_path is None:
         print("\nFailed to download/extract data. Exiting.")
         return None
 
-    print(f"\nLoading 10x data from {data_path}...")
+    print(f"Loading 10x data from {data_path}...")
     data = io.read_10x_mtx(data_path)
 
-    # Ensure unique gene names
     data.var.index = io._make_unique(data.var.index.values)
 
     print(f"Data Loaded: {data}")
     print(f"  Memory usage: {data.X.data.nbytes / 1024**2:.2f} MB")
 
-    # 2. Quality Control & Filtering
-    # Calculate basic metrics (n_genes, total_counts, percent_mito)
     pp.calculate_qc_metrics(data, qc_vars=["MT-"])
 
     print("\nQC Summary (before filtering):")
@@ -109,7 +93,6 @@ def main():
     print(f"  Mean counts per cell: {data.obs['total_counts'].mean():.0f}")
     print(f"  Mean MT%: {data.obs['pct_counts_MT-'].mean():.2f}%")
 
-    # Doublet Detection
     print("\nDetecting doublets with Scrublet...")
     qc.scrublet(
         data,
@@ -124,8 +107,6 @@ def main():
     )
     print(f"  Mean doublet score: {data.obs['doublet_score'].mean():.3f}")
 
-    # Filter Cells
-    # Standard PBMC cutoffs: <5% Mito, >200 Genes, <2500 Genes
     data = pp.filter_cells(data, min_genes=200, max_genes=2500, max_pct_mito=5.0)
     data = pp.filter_genes(data, min_cells=3)
 
@@ -145,21 +126,17 @@ def main():
 
     data.raw = data.copy()
 
-    # Scale data (centers mean to 0, scales variance to 1) for PCA
     pp.scale(data, max_value=10)
     print(f"Selected {data.var['highly_variable'].sum()} highly variable genes")
     print("Data scaled")
 
-    # Dimensionality Reduction (PCA)
     dim.run_pca(data, n_components=50)
     print(f"PCA computed: {data.obsm['X_pca'].shape}")
 
-    # Variance explained stats
     var_ratio = data.uns["pca"]["variance_ratio"]
     print(f"  Variance explained by PC1-10: {var_ratio[:10].sum()*100:.1f}%")
     print(f"  Variance explained by PC1-50: {var_ratio[:50].sum()*100:.1f}%")
 
-    # Neighborhood Graph & UMAP
     dim.neighbors(data, n_neighbors=10, n_pcs=40)
     print(" Neighbor graph computed")
 
@@ -171,7 +148,6 @@ def main():
         print("UMAP not installed. Skipping UMAP.")
         has_umap = False
 
-    # PCA
     try:
         cl.cluster_leiden(data, resolution=0.5, key_added="leiden")
         cluster_key = "leiden"
@@ -192,10 +168,8 @@ def main():
     print(f"  Found {n_clusters} clusters")
     print(f"  Cluster sizes:\n{data.obs[cluster_key].value_counts().sort_index()}")
 
-    # Note: We use 'use_raw=True' to perform stats on the unscaled (log-normalized) data
     diff.rank_genes_groups(data, groupby=cluster_key, method="t-test", use_raw=True)
 
-    # Show top markers for first cluster
     first_cluster = sorted(data.obs[cluster_key].unique())[0]
     top_markers = diff.get_marker_genes(
         data, group=first_cluster, pval_cutoff=0.05, lfc_cutoff=0.5
@@ -207,7 +181,6 @@ def main():
     else:
         print("  No significant markers found with current thresholds")
 
-    # Define PBMC cell type marker gene sets
     pbmc_markers = {
         "T_cell": ["CD3D", "CD3E", "CD3G", "CD8A", "CD4"],
         "B_cell": ["CD19", "MS4A1", "CD79A", "CD79B"],
@@ -238,7 +211,6 @@ def main():
     if has_umap:
         print("\nGenerating UMAP plots...")
 
-        # Clusters
         vis.plot_umap(
             data,
             color=cluster_key,
@@ -247,7 +219,6 @@ def main():
             legend_loc="right margin",
         )
 
-        # Doublet scores
         vis.plot_umap(
             data,
             color="doublet_score",
@@ -256,7 +227,6 @@ def main():
             save="pbmc_umap_doublet.png",
         )
 
-        # Cell cycle
         vis.plot_umap(
             data,
             color="phase",
@@ -265,7 +235,6 @@ def main():
             legend_loc="right margin",
         )
 
-        # Gene expression examples
         marker_genes = ["CD3D", "MS4A1", "CD14", "GNLY"]
         available_markers = [g for g in marker_genes if g in data.var.index]
 
@@ -278,19 +247,17 @@ def main():
                 save=f"pbmc_umap_{gene}.png",
             )
 
-        print(f"  ✓ Saved {2 + len(available_markers[:2])} UMAP plots")
+        print(f"   Saved {2 + len(available_markers[:2])} UMAP plots")
 
-    # QC violin plots (Grouped by Cluster now, since 'batch' was removed)
     print("\nGenerating QC plots...")
     vis.plot_qc_violin(
         data,
         metrics=["n_genes_by_counts", "total_counts", "pct_counts_MT-"],
-        groupby=cluster_key,  # Changed from 'batch' to cluster_key
+        groupby=cluster_key,
         save="pbmc_qc_violin.png",
     )
     print(" Saved QC violin plot")
 
-    # Volcano plot for differential expression
     vis.volcano_plot(
         data,
         group=first_cluster,
@@ -301,11 +268,9 @@ def main():
     )
     print(f"Saved volcano plot for cluster {first_cluster}")
 
-    # Top expressed genes
     vis.plot_highest_expr_genes(data, n_top=20, save="pbmc_top_genes.png")
     print("  Saved top genes plot")
 
-    # Dotplot of canonical markers
     canonical_markers = [
         "IL7R",
         "CD79A",
@@ -339,7 +304,6 @@ def main():
 
     try:
         if has_umap:
-            # Interactive UMAP
             print("\nGenerating interactive UMAP...")
             iviz.interactive_embedding(
                 data,
@@ -366,7 +330,6 @@ def main():
             )
             print(" Saved 3D PCA")
 
-        # Interactive heatmap
         print("Generating interactive heatmap...")
         if len(available_markers) > 0:
             iviz.interactive_heatmap(
@@ -386,7 +349,6 @@ def main():
     except Exception as e:
         print(f"\nCould not create interactive plots: {e}")
 
-    # 13. Summary & Save
     print(f"\nFinal dataset summary:")
     print(f"  Cells: {data.n_obs}")
     print(f"  Genes: {data.n_vars}")

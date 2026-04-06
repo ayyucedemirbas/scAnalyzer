@@ -1,7 +1,3 @@
-"""
-Interactive Visualizations using Plotly
-"""
-
 from typing import List, Optional
 
 import numpy as np
@@ -20,44 +16,6 @@ def interactive_embedding(
     height: int = 600,
     save_html: Optional[str] = None,
 ):
-    """
-    Interactive scatter plot of embeddings using Plotly.
-
-    Features:
-    - Zoom, pan, and select cells
-    - Hover to see cell information
-    - Interactive legend
-    - Export to HTML for sharing
-
-    Parameters
-
-    data : SingleCellDataset
-        Dataset with embeddings.
-    basis : str, default: 'X_umap'
-        Embedding to plot.
-    color : str, optional
-        Column in obs or gene name to color by.
-    hover_data : List[str], optional
-        Additional columns to show on hover.
-    title : str, optional
-        Plot title.
-    width : int, default: 800
-        Plot width in pixels.
-    height : int, default: 600
-        Plot height in pixels.
-    save_html : str, optional
-        Save interactive plot to HTML file.
-
-    Examples
-
-    >>> from interactive_viz import interactive_embedding
-    >>> interactive_embedding(
-    ...     data,
-    ...     color='leiden',
-    ...     hover_data=['n_genes', 'total_counts'],
-    ...     save_html='umap_interactive.html'
-    ... )
-    """
 
     try:
         import plotly.express as px
@@ -68,10 +26,8 @@ def interactive_embedding(
     if basis not in data.obsm:
         raise ValueError(f"{basis} not found. Run dimensionality reduction first.")
 
-    # Get coordinates
     coords = data.obsm[basis]
 
-    # Prepare data frame
     plot_df = pd.DataFrame(
         {
             f"{basis}_1": coords[:, 0],
@@ -80,27 +36,23 @@ def interactive_embedding(
         }
     )
 
-    # Add color data
     if color:
         from visualization import _get_color_data
 
         values, is_categorical, label = _get_color_data(data, color)
         plot_df[color] = values
 
-    # Add hover data
     if hover_data:
         for col in hover_data:
             if col in data.obs.columns:
                 plot_df[col] = data.obs[col].values
 
-    # Create plot
     if (
         color
         and pd.api.types.is_categorical_dtype(plot_df[color])
         or color
         and pd.api.types.is_object_dtype(plot_df[color])
     ):
-        # Categorical coloring
         fig = px.scatter(
             plot_df,
             x=f"{basis}_1",
@@ -113,7 +65,6 @@ def interactive_embedding(
             color_discrete_sequence=px.colors.qualitative.Set3,
         )
     elif color:
-        # Continuous coloring
         fig = px.scatter(
             plot_df,
             x=f"{basis}_1",
@@ -126,7 +77,6 @@ def interactive_embedding(
             color_continuous_scale="Viridis",
         )
     else:
-        # No coloring
         fig = px.scatter(
             plot_df,
             x=f"{basis}_1",
@@ -137,7 +87,6 @@ def interactive_embedding(
             height=height,
         )
 
-    # Update layout
     fig.update_traces(marker=dict(size=3, opacity=0.7))
     fig.update_layout(
         plot_bgcolor="white",
@@ -145,7 +94,6 @@ def interactive_embedding(
         yaxis=dict(showgrid=True, gridcolor="lightgray"),
     )
 
-    # Save or show
     if save_html:
         fig.write_html(save_html)
         print(f"Interactive plot saved to {save_html}")
@@ -163,25 +111,6 @@ def interactive_violin(
     height: int = 600,
     save_html: Optional[str] = None,
 ):
-    """
-    Interactive violin plot using Plotly.
-
-    Parameters
-
-    data : SingleCellDataset
-        Annotated data matrix.
-    keys : List[str]
-        Genes or obs columns to plot.
-    groupby : str
-        Grouping variable.
-    width : int, default: 1000
-        Plot width.
-    height : int, default: 600
-        Plot height.
-    save_html : str, optional
-        Save to HTML.
-    """
-
     try:
         import plotly.graph_objects as go
     except ImportError:
@@ -234,28 +163,6 @@ def interactive_heatmap(
     height: int = 600,
     save_html: Optional[str] = None,
 ):
-    """
-    Interactive heatmap using Plotly.
-
-    Parameters
-
-    data : SingleCellDataset
-        Annotated data matrix.
-    var_names : List[str]
-        Genes to include.
-    groupby : str
-        Grouping variable.
-    use_raw : bool, default: False
-        Use raw counts.
-    standard_scale : bool, default: True
-        Z-score normalize.
-    width : int, default: 800
-        Plot width.
-    height : int, default: 600
-        Plot height.
-    save_html : str, optional
-        Save to HTML.
-    """
 
     try:
         import plotly.graph_objects as go
@@ -264,7 +171,6 @@ def interactive_heatmap(
 
     import scipy.sparse as sp
 
-    # Get data
     valid_vars = [v for v in var_names if v in data.var.index]
     var_indices = [data.var.index.get_loc(v) for v in valid_vars]
 
@@ -277,7 +183,6 @@ def interactive_heatmap(
     if sp.issparse(X_subset):
         X_subset = X_subset.toarray()
 
-    # Compute mean per group
     groups = data.obs[groupby]
     unique_groups = np.sort(groups.unique())
 
@@ -288,13 +193,11 @@ def interactive_heatmap(
 
     heatmap_data = np.array(mean_expr)
 
-    # Standardize
     if standard_scale:
         heatmap_data = (heatmap_data - heatmap_data.mean(axis=0)) / (
             heatmap_data.std(axis=0) + 1e-10
         )
 
-    # Create heatmap
     fig = go.Figure(
         data=go.Heatmap(
             z=heatmap_data,
@@ -331,29 +234,6 @@ def interactive_3d_embedding(
     height: int = 700,
     save_html: Optional[str] = None,
 ):
-    """
-    3D interactive plot of embeddings.
-
-    Parameters
-    data : SingleCellDataset
-        Dataset with embeddings.
-    basis : str, default: 'X_pca'
-        Embedding key in obsm.
-    color : str, optional
-        Variable to color by.
-    dimensions : List[int], default: [0, 1, 2]
-        Which dimensions to plot (for PCA, use first 3 PCs).
-    width : int, default: 900
-        Plot width.
-    height : int, default: 700
-        Plot height.
-    save_html : str, optional
-        Save to HTML.
-
-    Examples
-
-    >>> interactive_3d_embedding(data, basis='X_pca', color='leiden', dimensions=[0,1,2])
-    """
 
     try:
         import plotly.express as px
@@ -365,13 +245,11 @@ def interactive_3d_embedding(
 
     coords = data.obsm[basis]
 
-    # Check dimensions
     if coords.shape[1] < 3:
         raise ValueError(
             f"{basis} has only {coords.shape[1]} dimensions. Need at least 3 for 3D plot."
         )
 
-    # Prepare data
     plot_df = pd.DataFrame(
         {
             "dim1": coords[:, dimensions[0]],
@@ -387,7 +265,6 @@ def interactive_3d_embedding(
         values, is_categorical, label = _get_color_data(data, color)
         plot_df[color] = values
 
-    # Create 3D plot
     fig = px.scatter_3d(
         plot_df,
         x="dim1",
