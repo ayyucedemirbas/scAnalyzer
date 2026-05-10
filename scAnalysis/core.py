@@ -19,13 +19,19 @@ class SingleCellDataset:
         obsm: Optional[Dict[str, np.ndarray]] = None,
         varm: Optional[Dict[str, np.ndarray]] = None,
     ) -> None:
+        #Rows = Cells, Columns = Genes
+        # If it's a sparse matrix (mostly zeros, to save RAM), we force it into 
+        # 'CSR' format because CSR is much faster for reading row-by-row.
         if sp.issparse(X) and not sp.isspmatrix_csr(X):
             X = X.tocsr()
         self._X: Union[np.ndarray, sp.spmatrix] = X
 
+        # n_obs = number of cells, n_vars = number of genes.
         n_obs, n_vars = X.shape
         self._n_obs: int = n_obs
         self._n_vars: int = n_vars
+
+        #obs: observation. the properties of cells (metadata). patient id, cell id, etc.
 
         if obs is not None:
             if len(obs) != n_obs:
@@ -34,6 +40,21 @@ class SingleCellDataset:
         else:
             self._obs = pd.DataFrame(index=range(n_obs))
 
+        
+        #var: variables. contains gene info. a pandas dataframe
+        """
+        Every row in this table represents a single gene. The row names (the index) are the gene names (e.g., GAPDH, CD3E). 
+        
+        The columns contain specific properties or metrics calculated for that gene. 
+        For example:
+
+            - In how many cells is this gene expressed? (n_cells)
+
+            - What is its average expression level? (means)
+
+            - Is this a highly variable gene? (highly_variable: True/False)
+        
+        """
         if var is not None:
             if len(var) != n_vars:
                 raise ValueError(f"var has {len(var)} rows but X has {n_vars} columns.")
@@ -239,12 +260,10 @@ class SingleCellDataset:
 
     def summary(self) -> str:
         lines = [
-            "─" * 56,
             f"SingleCellDataset  {self._n_obs:,} cells × {self._n_vars:,} genes",
-            "─" * 56,
         ]
 
-        # Matrix type & memory
+        # Matrix type and memory
         if sp.issparse(self._X):
             nnz = self._X.nnz
             density = 100 * nnz / (self._n_obs * self._n_vars)
@@ -262,7 +281,7 @@ class SingleCellDataset:
         if not self._var.empty and len(self._var.columns):
             lines.append(f"  var: {', '.join(self._var.columns.tolist())}")
 
-        # Embeddings & graphs
+        # Embeddings and graphs
         if self._obsm:
             details = ", ".join(f"{k} {v.shape}" for k, v in self._obsm.items())
             lines.append(f"  obsm: {details}")

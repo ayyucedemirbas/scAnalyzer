@@ -20,6 +20,15 @@ def read_10x_mtx(
 ) -> SingleCellDataset:
     path = path.rstrip("/")
 
+    """
+    1. matrix.mtx: The actual numbers (how many times a gene was seen in a cell).
+    2. barcodes.tsv: The names/IDs of the cells (rows).
+    3. features.tsv (or genes.tsv): The names of the genes (columns).
+
+    https://kb.10xgenomics.com/s/article/115000794686-How-is-the-MEX-format-used-for-the-gene-barcode-matrices
+    https://www.10xgenomics.com/support/software/cell-ranger-atac/latest/analysis/outputs/feature-barcode-matrices
+    """
+
     def _resolve(base: str) -> str:
         for candidate in (base, base + ".gz"):
             if os.path.exists(candidate):
@@ -34,7 +43,10 @@ def read_10x_mtx(
         features_base = os.path.join(path, "genes.tsv")
     features_file = _resolve(features_base)
 
-    print(f"IO: Reading 10x data from '{path}' …")
+    print(f"IO: data from '{path}' …")
+
+    # in 10x Genomics data, cells are columns and genes are rows, we need to Transpose it
+    # so cells are rows and genes are columns.
 
     X = sio.mmread(mtx_file).T.tocsr()
 

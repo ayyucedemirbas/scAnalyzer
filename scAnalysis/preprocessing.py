@@ -8,12 +8,19 @@ import scipy.sparse as sp
 
 from .core import SingleCellDataset
 
-
+"""
+It counts: 
+    1. How many total RNA molecules does this cell have?
+    2. How many UNIQUE genes were found in this cell?
+    3. What percentage of the RNA comes from Mitochondria (MT-)? 
+       (Too much MT = the cell is dead/dying and leaking its nuclear RNA).
+"""
 def calculate_qc_metrics(
     data: SingleCellDataset,
     qc_vars: Optional[List[str]] = None,
     inplace: bool = True,
 ) -> Optional[SingleCellDataset]:
+
     if not inplace:
         data = data.copy()
 
@@ -45,7 +52,11 @@ def calculate_qc_metrics(
 
     return None if inplace else data
 
-
+"""
+    - Too few counts/genes? It's probably an empty droplet, not a real cell.
+    - Too many counts/genes? It's probably two cells stuck together (doublet).
+    - Too much mitochondria? The cell is dead.
+"""
 def filter_cells(
     data: SingleCellDataset,
     min_counts: Optional[int] = None,
@@ -95,6 +106,10 @@ def filter_cells(
     print(f"filter_cells: keeping {n_keep:,} / {data.n_obs:,} cells.")
     return data[mask, :]
 
+"""
+If a gene is only seen in 1 or 2 cells out of 10000, it's statistically 
+useless. It just takes up RAM and adds noise. We throw these rare genes away.
+"""
 
 def filter_genes(
     data: SingleCellDataset,
@@ -108,7 +123,12 @@ def filter_genes(
     print(f"filter_genes: keeping {int(mask.sum()):,} / {data.n_vars:,} genes.")
     return data[:, mask]
 
-
+"""
+The sequencing machine reads some cells, for example, 5000 times and others 20000 times.
+    If cell A has more "CD3E" gene counts than cell B, is it because it's a T-cell, 
+    or just because the machine read cell A more?
+    We force every cell to have exactly the same total amount of counts (e.g., 10000).
+"""
 def normalize_total(
     data: SingleCellDataset,
     target_sum: float = 1e4,
@@ -136,6 +156,13 @@ def normalize_total(
 
     return None if inplace else data
 
+"""
+
+Biological signals grow exponentially. One gene might have 1 count, 
+another might have 10,000. If we give this to Machine Learning (PCA), the 
+10,000 gene will crush everything else. 
+Applying log(x+1) compresses these huge gaps, making the data curve more 'normal'.
+"""
 
 def log1p(
     data: SingleCellDataset,
@@ -151,7 +178,13 @@ def log1p(
 
     return None if inplace else data
 
-
+"""
+Out of 20,000 genes, most are genes that maintain a static, 
+invariant expression profile. They do basic cell maintenance and look exactly 
+the same in every cell type. We don't care about them. We want the genes that 
+fluctuate wildly between cells (Highly Variable Genes), 
+because these are the markers that define different cell identities
+"""
 def highly_variable_genes(
     data: SingleCellDataset,
     n_top_genes: int = 2000,
@@ -206,6 +239,14 @@ def highly_variable_genes(
     print(f"HVG: identified {n_top_genes:,} highly variable genes.")
     return None if inplace else data
 
+"""
+Even among these feature-selected informative genes, some naturally exhibit 
+high-magnitude expression (e.g., 500 units) while others operate at low-abundance 
+levels (e.g., 10 units). By converting them to Z-scores, we standardize the data so that 
+every gene has a mean of 0 and a standard deviation of 1. Consequently, downstream 
+algorithms like PCA evaluate each gene based on its relative variance and deviation from 
+its own baseline, rather than being biased by its absolute transcriptional magnitude.
+"""
 
 def scale(
     data: SingleCellDataset,

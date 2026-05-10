@@ -37,7 +37,7 @@ def interactive_embedding(
     )
 
     if color:
-        from visualization import _get_color_data
+        from .visualization import _get_color_data
 
         values, is_categorical, label = _get_color_data(data, color)
         plot_df[color] = values
@@ -116,7 +116,7 @@ def interactive_violin(
     except ImportError:
         raise ImportError("Please install plotly: pip install plotly")
 
-    from visualization import _get_color_data
+    from .visualization import _get_color_data
 
     fig = go.Figure()
 
@@ -260,7 +260,7 @@ def interactive_3d_embedding(
     )
 
     if color:
-        from visualization import _get_color_data
+        from .visualization import _get_color_data
 
         values, is_categorical, label = _get_color_data(data, color)
         plot_df[color] = values

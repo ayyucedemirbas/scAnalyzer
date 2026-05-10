@@ -173,9 +173,90 @@ def mnn_correct(
     sigma: float = 1.0,
 ) -> SingleCellDataset:
     from utils import merge
+    from sklearn.neighbors import NearestNeighbors
+    from scipy.spatial.distance import cdist
+    import numpy as np
+    import scipy.sparse as sp
 
-    batch_keys = [f"batch_{i}" for i in range(len(datasets))]
-    return merge(datasets, batch_keys=batch_keys, batch_category=batch_key)
+    if len(datasets) < 2:
+        print("MNN: Less than 2 datasets provided. Nothing to correct.")
+        return datasets[0].copy() if datasets else None
+
+    ref_data = datasets[0].copy()
+    corrected_datasets = [ref_data]
+
+    for i in range(1, len(datasets)):
+        target_data = datasets[i].copy()
+        
+        X_ref = ref_data.X.toarray() if sp.issparse(ref_data.X) else np.asarray(ref_data.X)
+        X_target = target_data.X.toarray() if sp.issparse(target_data.X) else np.asarray(target_data.X)
+        
+        nn_ref = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(X_ref)
+        _, indices_target_to_ref = nn_ref.kneighbors(X_target)
+        
+        nn_target = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(X_target)
+        _, indices_ref_to_target = nn_target.kneighbors(X_ref)
+        
+        mnn_t = []
+        mnn_r = []
+        
+        for t_idx in range(X_target.shape[0]):
+            for r_idx in indices_target_to_ref[t_idx]:
+                if t_idx in indices_ref_to_target[r_idx]:
+                    mnn_t.append(t_idx)
+                    mnn_r.append(r_idx)
+        
+        mnn_t = np.array(mnn_t)
+        mnn_r = np.array(mnn_r)
+        
+        if len(mnn_t) == 0:
+            print(f"     Warning: No MNNs found between batches. Merging without correction.")
+            corrected_datasets.append(target_data)
+            # Update reference to include this uncorrected batch
+            ref_data = merge([ref_data, target_data], join="inner")
+            continue
+            
+        print(f"     Found {len(mnn_t)} mutual anchors.")
+
+        correction_vectors = X_ref[mnn_r] - X_target[mnn_t] # Shape: (n_anchors, n_genes)
+        
+        anchor_target_coords = X_target[mnn_t]
+        dist_sq = cdist(X_target, anchor_target_coords, metric='sqeuclidean')
+        
+        weights = np.exp(-dist_sq / sigma)
+        
+        weight_sums = weights.sum(axis=1, keepdims=True)
+        weight_sums[weight_sums == 0] = 1.0
+        weights_normalized = weights / weight_sums
+        
+        target_correction = weights_normalized @ correction_vectors
+        
+        X_target_corrected = X_target + target_correction
+        
+        if sp.issparse(target_data.X):
+            target_data.X = sp.csr_matrix(X_target_corrected)
+        else:
+            target_data.X = X_target_corrected
+            
+        corrected_datasets.append(target_data)
+        
+        ref_data = merge(
+            [ref_data, target_data], 
+            batch_keys=["ref", f"b{i}"], 
+            batch_category="_temp_batch", 
+            join="inner"
+        )
+        
+    
+    batch_keys_final = [f"batch_{i}" for i in range(len(datasets))]
+    final_merged = merge(
+        corrected_datasets, 
+        batch_keys=batch_keys_final, 
+        batch_category=batch_key, 
+        join="inner"
+    )
+    
+    return final_merged
 
 
 def _check_inputs(
