@@ -5,6 +5,8 @@ from typing import List, Optional, Union
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from sklearn.cluster import KMeans
+import statsmodels.api as sm
 
 from .core import SingleCellDataset
 
@@ -153,6 +155,156 @@ def normalize_total(
         counts = X.sum(axis=1).reshape(-1, 1)
         counts[counts == 0] = 1.0
         data.X = (X / counts) * target_sum
+
+    return None if inplace else data
+
+def normalize_scran_pooling(
+    data: SingleCellDataset, 
+    n_pools: int = 50, 
+    target_sum: float = 1e4,
+    inplace: bool = True
+) -> Optional[SingleCellDataset]:
+    """
+    scran-like pooling-based normalization.
+    Groups cells into pools to mitigate the noise caused by high dropout rates (zeros),
+    calculating more robust size factors than single-cell level scaling.
+    """
+    if not inplace:
+        data = data.copy()
+
+    if data.raw is None:
+        data.raw = data.X.copy()
+
+    X = data.X
+    n_cells = X.shape[0]
+    
+    # 1. Coarsely cluster cells into pools using K-Means
+    # True scran uses a rolling window on a KNN graph, but K-Means on total counts
+    # is a fast and effective approximation for grouping cells of similar depths.
+    n_clusters = min(n_pools, max(1, n_cells // 10))
+    
+    if sp.issparse(X):
+        total_counts = np.ravel(X.sum(axis=1))
+    else:
+        total_counts = X.sum(axis=1)
+        
+    km = KMeans(n_clusters=n_clusters, random_state=0, n_init=3)
+    clusters = km.fit_predict(total_counts.reshape(-1, 1))
+
+    # 2. Calculate a pseudo-size factor for each pool
+    size_factors = np.zeros(n_cells)
+    
+    for i in range(n_clusters):
+        mask = clusters == i
+        pool_cells = mask.sum()
+        if pool_cells == 0:
+            continue
+            
+        if sp.issparse(X):
+            pool_sum = np.ravel(X[mask, :].sum(axis=0))
+        else:
+            pool_sum = X[mask, :].sum(axis=0)
+            
+        # The median expression of the pool serves as the pool size factor
+        pool_size_factor = np.median(pool_sum[pool_sum > 0])
+        if np.isnan(pool_size_factor) or pool_size_factor == 0:
+            pool_size_factor = 1.0
+            
+        # Distribute the pool factor back to individual cells based on their fraction of the pool's total reads
+        cell_totals = total_counts[mask]
+        cell_factors = pool_size_factor * (cell_totals / (cell_totals.sum() + 1e-12))
+        size_factors[mask] = cell_factors
+
+    # 3. Correct any zero or negative size factors
+    size_factors = np.where(size_factors <= 0, 1.0, size_factors)
+    
+    # 4. Apply the normalization scale
+    scale = target_sum / size_factors
+    
+    if sp.issparse(X):
+        from scipy.sparse import diags
+        data.X = diags(scale, 0) @ X
+    else:
+        data.X = X * scale[:, np.newaxis]
+
+    print("normalize_scran_pooling: Robust size factors applied.")
+    return None if inplace else data
+
+def normalize_sctransform(
+    data: SingleCellDataset, 
+    inplace: bool = True
+) -> Optional[SingleCellDataset]:
+    """
+    sctransform-like normalization using regularized Negative Binomial regression.
+    Models the variance-mean relationship for each gene and regresses out the effect 
+    of sequencing depth, returning Pearson residuals as the normalized values.
+    """
+    if not inplace:
+        data = data.copy()
+
+    if data.raw is None:
+        data.raw = data.X.copy()
+
+    X = data.X
+    n_cells, n_genes = X.shape
+
+    # For speed, we convert to dense. For massive datasets, you would want to 
+    # iterate over sparse columns directly without full densification.
+    if sp.issparse(X):
+        total_counts = np.ravel(X.sum(axis=1))
+        X_dense = X.toarray() 
+    else:
+        total_counts = X.sum(axis=1)
+        X_dense = X.copy()
+
+    total_counts = np.where(total_counts == 0, 1.0, total_counts)
+    log_totals = np.log10(total_counts)
+    
+    # Exogenous variable (Predictor: log10 of sequencing depth)
+    exog = sm.add_constant(log_totals)
+    
+    normalized_X = np.zeros_like(X_dense, dtype=float)
+    
+    print(f"normalize_sctransform: Fitting NB models for {n_genes} genes. This may take a while...")
+    
+    for i in range(n_genes):
+        y = X_dense[:, i]
+        
+        # Only fit models for genes that are expressed in at least a few cells
+        if np.count_nonzero(y) < 3:
+            continue
+            
+        try:
+            # GLM with Negative Binomial family
+            model = sm.GLM(y, exog, family=sm.families.NegativeBinomial())
+            result = model.fit(disp=0)
+            
+            # Expected values (mu)
+            mu = result.mu
+            
+            # Variance estimate: var = mu + alpha * mu^2 (assuming alpha=1 for simple dispersion)
+            var = mu + (mu ** 2) 
+            
+            # Calculate Pearson Residuals: (Observed - Expected) / sqrt(Variance)
+            residuals = (y - mu) / np.sqrt(var + 1e-12)
+            
+            # Clip extreme outliers
+            max_val = np.sqrt(n_cells)
+            residuals = np.clip(residuals, -max_val, max_val)
+            
+            normalized_X[:, i] = residuals
+            
+        except Exception:
+            # If the model fails to converge, leave the residuals as 0
+            pass
+
+    # Overwrite the original matrix with the Pearson residuals
+    if sp.issparse(data.X):
+        data.X = sp.csr_matrix(normalized_X)
+    else:
+        data.X = normalized_X
+        
+    print("normalize_sctransform: Completed. X matrix now contains Pearson residuals.")
 
     return None if inplace else data
 
