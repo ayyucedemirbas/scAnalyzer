@@ -113,5 +113,22 @@ python -m unittest discover scAnalysis/ -p "test_*.py"
 ## 🤝 Contributing
 Contributions are welcome! If you find a bug or want to suggest a new feature, please open an issue or submit a pull request.
 
+## 🤖 Future Enhancements / To-Do List
+- [ ] Implement Imputation Module (Dropout Handling)
+
+  - Context: The current scAnalysis package lacks a dedicated module to handle missing data and technical dropouts.
+  
+  - Task: Develop an imputation workflow to infer missing values and correct for zero-inflation.
+  
+  - References: Investigate integrating or replicating methodologies like SAVER (Poisson LASSO strategy) or scVI (Variational Autoencoders).
+
+- [ ] Add Automated Cell Type Annotation & Projection
+
+  - Context: Currently, cell type assignment relies on a manual, marker-based approach using gene set scoring (enrichment.py).
+  
+  - Task: Implement automated, classifier-based annotation tools that can predict cell types directly from reference datasets.
+  
+  - References: Consider integrating projection algorithms like scmap or regularized regression classifiers like Garnett.
+
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/ayyucedemirbas/scAnalyzer/blob/main/LICENSE) file for details.
