@@ -114,7 +114,7 @@ python -m unittest discover scAnalysis/ -p "test_*.py"
 Contributions are welcome! If you find a bug or want to suggest a new feature, please open an issue or submit a pull request.
 
 ## 🤖 Future Enhancements / To-Do List
-- [ ] Implement Imputation Module (Dropout Handling)
+- [x] Implement Imputation Module (Dropout Handling)
 
   - Context: The current scAnalysis package lacks a dedicated module to handle missing data and technical dropouts.
   
