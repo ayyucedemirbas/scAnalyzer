@@ -152,17 +152,28 @@ def _read_dataframe_from_hdf5(group: h5py.Group) -> pd.DataFrame:
     for key in group.keys():
         if key == index_key:
             continue
+            
         dset = group[key]
-        raw = dset[:]
-
-        if "categories" in dset.attrs:
-            cats_raw = dset.attrs["categories"]
-            cats = [c.decode() if isinstance(c, bytes) else c for c in cats_raw]
-            data_dict[key] = pd.Categorical.from_codes(raw, categories=cats)
-        elif raw.dtype.kind in ("S", "O"):
-            data_dict[key] = raw.astype(str)
+        
+        if isinstance(dset, h5py.Group):
+            if "categories" in dset and "codes" in dset:
+                cats_raw = dset["categories"][:]
+                codes = dset["codes"][:]
+                cats = [c.decode() if isinstance(c, bytes) else str(c) for c in cats_raw]
+                data_dict[key] = pd.Categorical.from_codes(codes, categories=cats)
+            else:
+                continue
         else:
-            data_dict[key] = raw
+            raw = dset[:]
+
+            if "categories" in dset.attrs:
+                cats_raw = dset.attrs["categories"]
+                cats = [c.decode() if isinstance(c, bytes) else str(c) for c in cats_raw]
+                data_dict[key] = pd.Categorical.from_codes(raw, categories=cats)
+            elif raw.dtype.kind in ("S", "O"):
+                data_dict[key] = raw.astype(str)
+            else:
+                data_dict[key] = raw
 
     df = pd.DataFrame(data_dict, index=index)
 

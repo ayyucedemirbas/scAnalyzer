@@ -11,6 +11,7 @@ scAnalysis/differential.py
 scAnalysis/dimensionality.py
 scAnalysis/enrichment.py
 scAnalysis/extended_analysis_example.py
+scAnalysis/imputation.py
 scAnalysis/interactive_viz.py
 scAnalysis/preprocessing.py
 scAnalysis/quality_control.py
