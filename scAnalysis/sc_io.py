@@ -275,12 +275,13 @@ def read_h5ad(filename: str) -> SingleCellDataset:
                 if isinstance(item, h5py.Group):
                     d: Dict = {}
                     for sk in item.keys():
-                        d[sk] = item[sk][:]
+                        sub_item = item[sk]
+                        d[sk] = sub_item[()] if sub_item.shape == () else sub_item[:]
                     for sk in item.attrs:
                         d[sk] = item.attrs[sk]
                     uns[k] = d
                 else:
-                    uns[k] = item[:]
+                    uns[k] = item[()] if item.shape == () else item[:]
 
     print(f"IO: Loaded {X.shape[0]:,} cells × {X.shape[1]:,} genes.")
     return SingleCellDataset(X, obs, var, uns=uns, obsm=obsm, varm=varm)
