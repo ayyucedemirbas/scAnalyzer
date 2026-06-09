@@ -7,4 +7,4 @@ scAnalyzer is a comprehensive, end-to-end, and user-friendly Python library for 
    :maxdepth: 2
    :caption: Getting Started:
 
-   Installation.md
+   scAnalyzer.md
