@@ -5,15 +5,23 @@ A Python toolkit for single-cell RNA sequencing (scRNA-seq) analysis.
 🚧 **Warning this project is under heavy development and not ready for production. ABI changes can happen frequently until reach stable version** 🚧
 
 <p align="center">
-  <img alt="GitHub" src="[https://img.shields.io/github/license/ayyucedemirbas/scAnalyzer](https://img.shields.io/github/license/ayyucedemirbas/scAnalyzer)">
-  <img alt="Black" src="[https://img.shields.io/badge/code%20style-black-black](https://img.shields.io/badge/code%20style-black-black)"/>
-  <img alt="isort" src="[https://img.shields.io/badge/isort-checked-yellow](https://img.shields.io/badge/isort-checked-yellow)"/>
+
+<img alt="GitHub" src="https://img.shields.io/github/license/ayyucedemirbas/scAnalyzer">
+
+<img alt="Black" src="https://img.shields.io/badge/code%20style-black-black"/>
+
+<img alt="isort" src="https://img.shields.io/badge/isort-checked-yellow"/>
+
 </p>
 
 <p align="center">
-<a href="[https://pypi.org/project/scAnalysis/](https://pypi.org/project/scAnalysis/)" target="_blank">
-    <img src="[https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package](https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package)" alt="Package version">
+
+<a href="https://pypi.org/project/scAnalysis/" target="_blank">
+
+<img src="https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package" alt="Package version">
+
 </a>
+
 </p>
 
 **scAnalyzer** is an integrated toolkit designed for scalable and memory-efficient single-cell RNA sequencing (scRNA-seq) data analysis. Built around a custom, highly optimized `SingleCellDataset` core, it seamlessly bridges foundational preprocessing with advanced downstream analyses, including dropout imputation, trajectory inference, batch correction, and interactive 3D visualizations.
