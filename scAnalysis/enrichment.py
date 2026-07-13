@@ -25,7 +25,7 @@ def gene_set_score(
     # Cells with high hypoxia score
     # hypoxic = data[data.obs['hypoxia_score'] > 0.5, :]
 
-    from cell_cycle import score_genes
+    from .cell_cycle import score_genes
 
     scores = score_genes(
         data,

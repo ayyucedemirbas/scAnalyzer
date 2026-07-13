@@ -172,7 +172,7 @@ def mnn_correct(
     k: int = 20,
     sigma: float = 1.0,
 ) -> SingleCellDataset:
-    from utils import merge
+    from .utils import merge
     from sklearn.neighbors import NearestNeighbors
     from scipy.spatial.distance import cdist
     import numpy as np
