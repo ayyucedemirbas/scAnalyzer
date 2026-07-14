@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: scAnalysis
-Version: 0.1.9
+Version: 0.2.2
 Summary: A single-cell analysis pipeline.
 Requires-Python: >=3.8
 Description-Content-Type: text/markdown
@@ -27,28 +27,37 @@ A Python toolkit for single-cell RNA sequencing (scRNA-seq) analysis.
 🚧 **Warning this project is under heavy development and not ready for production. ABI changes can happen frequently until reach stable version** 🚧
 
 <p align="center">
-  <img alt="GitHub" src="https://img.shields.io/github/license/ayyucedemirbas/scAnalyzer">
-  <img alt="Black" src="https://img.shields.io/badge/code%20style-black-black"/>
-  <img alt="isort" src="https://img.shields.io/badge/isort-checked-yellow"/>
+
+<img alt="GitHub" src="https://img.shields.io/github/license/ayyucedemirbas/scAnalyzer">
+
+<img alt="Black" src="https://img.shields.io/badge/code%20style-black-black"/>
+
+<img alt="isort" src="https://img.shields.io/badge/isort-checked-yellow"/>
+
 </p>
 
 <p align="center">
+
 <a href="https://pypi.org/project/scAnalysis/" target="_blank">
-    <img src="https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package" alt="Package version">
+
+<img src="https://img.shields.io/pypi/v/scAnalysis?color=%2334D058&label=pypi%20package" alt="Package version">
+
 </a>
+
 </p>
 
-**scAnalyzer** is an integrated toolkit designed for scalable and memory-efficient single-cell RNA sequencing (scRNA-seq) data analysis. Built around a custom, highly optimized `SingleCellDataset` core, it seamlessly bridges foundational preprocessing with advanced downstream analyses, including trajectory inference, batch correction, and interactive 3D visualizations.
+**scAnalyzer** is an integrated toolkit designed for scalable and memory-efficient single-cell RNA sequencing (scRNA-seq) data analysis. Built around a custom, highly optimized `SingleCellDataset` core, it seamlessly bridges foundational preprocessing with advanced downstream analyses, including dropout imputation, trajectory inference, batch correction, and interactive 3D visualizations.
 
 ## ✨ Key Features
 
 * **📦 Memory-Efficient Core:** Custom `SingleCellDataset` supporting sparse matrices (CSR/CSC) and HDF5 (`.h5ad`) I/O operations natively.
-* **🧹 Robust Preprocessing:** Automated QC, MAD-based outlier detection, doublet prediction (via Scrublet), and cell-cycle scoring.
-* **🔄 Batch Correction:** Built-in support for multiple integration algorithms including Harmony, ComBat, and MNN.
-* **🗺️ Dimensionality Reduction & Clustering:** PCA, UMAP, t-SNE, PHATE, and Diffusion Maps. Supports graph-based (Leiden, Louvain) and distance-based clustering (K-Means, DBSCAN, Hierarchical).
-* **📊 Differential Expression:** Highly vectorized, ultra-fast marker gene identification (t-test, Wilcoxon) and Gene Set Enrichment Analysis (Hypergeometric, GSEA).
-* **🛤️ Trajectory Inference:** Dynamic cellular lineage tracking using Diffusion Pseudotime (DPT) with automated branch detection.
-* **🎨 Interactive Visualizations:** Publication-ready static plots (Matplotlib/Seaborn) and dynamic, browser-based visualizations (Plotly 3D embeddings, interactive heatmaps).
+* **🧹 Robust Preprocessing & Normalization:** Automated QC, MAD-based outlier detection, doublet prediction (via Scrublet), and cell-cycle scoring. Includes advanced normalization techniques such as **scran-like pooling** and **sctransform-like regression**.
+* **🩹 Dropout Imputation:** Dedicated module to handle missing data and technical dropouts using Weighted Neighborhood Imputation with Dropout Detection (WNID), kNN-smoothing, and diffusion-based algorithms.
+* **🔄 Batch Correction:** Built-in support for multiple integration algorithms including Harmony, ComBat, and Mutual Nearest Neighbors (MNN).
+* **🗺️ Dimensionality Reduction & Clustering:** PCA, UMAP, t-SNE, PHATE, and Diffusion Maps. Supports graph-based (Leiden, Louvain) and distance-based clustering (K-Means, DBSCAN, Hierarchical, Spectral).
+* **📊 Differential Expression & Enrichment:** Highly vectorized, ultra-fast marker gene identification (t-test, Wilcoxon) and Gene Set Enrichment Analysis (Hypergeometric, Fisher's Exact, GSEA).
+* **🛤️ Trajectory Inference:** Dynamic cellular lineage tracking using Diffusion Pseudotime (DPT) with automated root selection and branch detection.
+* **🎨 Interactive Visualizations:** Publication-ready static plots (Matplotlib/Seaborn) and dynamic, browser-based Plotly visualizations (Interactive UMAP/PCA, 3D embeddings, violins, and heatmaps).
 
 ## 🚀 Installation
 
@@ -58,10 +67,11 @@ Install the package directly from PyPI:
 pip install scAnalysis
 ```
 
-For interactive visualizations, ensure plotly is installed. For Leiden/Louvain clustering, leidenalg, louvain, and igraph are required.
+For interactive visualizations, ensure `plotly` is installed. For graph-based clustering, `leidenalg`, `louvain`, and `igraph` are required. For advanced embeddings, `umap-learn` and `phate` are optionally supported.
 
 ## 💡 Quick Start
-Here is a minimal example demonstrating a standard scRNA-seq workflow using scAnalyzer:
+Here is a minimal example demonstrating a comprehensive scRNA-seq workflow, from data loading to imputation and visualization:
+
 ```python
 import scAnalysis as sca
 ```
@@ -69,66 +79,93 @@ import scAnalysis as sca
 ### 1. Load Data
 ```python
 adata = sca.sc_io.read_10x_mtx('data/filtered_gene_bc_matrices/hg19')
+adata.var.index = sca.sc_io._make_unique(adata.var.index.values)
 ```
 
-### 2. Preprocessing & QC
+### 2. QC, Filtering & Doublet Detection
 ```python
 sca.preprocessing.calculate_qc_metrics(adata, qc_vars=['MT-'])
+sca.quality_control.scrublet(adata)
+
+# Filter out predicted doublets and low-quality cells
+mask_singlets = ~adata.obs['predicted_doublet'].astype(bool)
+adata = adata[mask_singlets, :]
 adata = sca.preprocessing.filter_cells(adata, min_genes=200, max_pct_mito=5.0)
 adata = sca.preprocessing.filter_genes(adata, min_cells=3)
-sca.preprocessing.normalize_total(adata, target_sum=1e4)
-sca.preprocessing.log1p(adata)
-sca.preprocessing.highly_variable_genes(adata, n_top_genes=2000)
 ```
 
-### 3. Dimensionality Reduction
+### 3. Normalization, Imputation & Feature Selection
+```python
+# Choose normalization: normalize_total, normalize_scran_pooling, or normalize_sctransform
+sca.preprocessing.normalize_total(adata, target_sum=1e4)
+sca.preprocessing.log1p(adata)
+
+# Recover technical dropouts via WNID imputation
+sca.imputation.impute_wnid(adata, k=3, dropout_thresh=0.9, n_pcs=30)
+
+sca.cell_cycle.score_cell_cycle(adata, organism="human")
+sca.preprocessing.highly_variable_genes(adata, n_top_genes=2000)
+adata.raw = adata.copy()
+sca.preprocessing.scale(adata, max_value=10)
+```
+
+### 4. Dimensionality Reduction & Batch Correction
 ```python
 sca.dimensionality.run_pca(adata, n_components=50)
+
+# Optional: Correct batch effects (e.g., using Harmony)
+# sca.batch_correction.harmony_integrate(adata, batch_key='batch_col', basis='X_pca')
+
 sca.dimensionality.neighbors(adata, n_neighbors=10, n_pcs=40)
 sca.dimensionality.run_umap(adata, min_dist=0.3)
 ```
 
-### 4. Clustering & Differential Expression
+### 5. Clustering, Trajectory & Differential Expression
 ```python
 sca.clustering.cluster_leiden(adata, resolution=0.5, key_added='leiden')
+
+# Infer Cellular Trajectory
+root_idx = sca.trajectory.select_root_cell(adata, cluster_key='leiden', root_cluster='0', strategy='extreme')
+sca.trajectory.diffusion_pseudotime(adata, root_cell=root_idx)
+
+# Find Markers
 sca.differential.rank_genes_groups(adata, groupby='leiden', method='t-test')
+cluster0_markers = sca.differential.get_marker_genes(adata, group='0', pval_cutoff=0.05, lfc_cutoff=0.5)
 ```
 
-### 5. Visualization
+### 6. Visualization
 ```python
+# Static Plots
 sca.visualization.plot_umap(adata, color='leiden', save='umap_clusters.png')
 sca.visualization.plot_dotplot(adata, var_names=['CD3E', 'MS4A1', 'CD14'], groupby='leiden')
+
+# Interactive Browser-based Plots
+sca.interactive_viz.interactive_embedding(adata, basis='X_umap', color='leiden', hover_data=['dpt_pseudotime', 'phase'])
+sca.interactive_viz.interactive_3d_embedding(adata, basis='X_pca', color='leiden')
 ```
 
 ## 🏗️ Architecture & Modules
 The framework is highly modular, allowing you to use only the components you need:
 
-`scAnalysis.core:` Contains the base SingleCellDataset data structure.
-
-`scAnalysis.preprocessing:` Filtering, normalization, and HVG selection.
-
-`scAnalysis.quality_control:` Scrublet doublet detection and outlier filtering.
-
-`scAnalysis.dimensionality:` PCA, UMAP, t-SNE, DiffMap, PHATE.
-
-`scAnalysis.clustering:` K-Means, Leiden, Louvain, Spectral, DBSCAN.
-
-`scAnalysis.differential:` Vectorized stats for marker discovery.
-
-`scAnalysis.enrichment:` Gene set scoring, MSigDB integration, GSEA.
-
-`scAnalysis.trajectory:` Root cell selection, DPT, branching.
-
-`scAnalysis.visualization:` Static plotting (Violin, Dotplot, Heatmap, Volcano).
-
-`scAnalysis.interactive_viz:` Plotly-powered interactive UI.
-
-`scAnalysis.sc_io:` Native 10x MTX, CSV, and .h5ad read/write support.
+* `scAnalysis.core:` Base `SingleCellDataset` data structure supporting dense and sparse memory-efficient representations.
+* `scAnalysis.preprocessing:` QC metrics, normalization (`scran`, `sctransform`, standard scaling), and HVG selection.
+* `scAnalysis.quality_control:` Scrublet doublet detection and MAD-based outlier filtering.
+* `scAnalysis.imputation:` WNID, kNN-smooth, and Diffusion imputation for dropout recovery.
+* `scAnalysis.batch_correction:` Integration methods via Harmony, ComBat, and MNN.
+* `scAnalysis.cell_cycle:` S and G2M phase scoring and phase regression.
+* `scAnalysis.dimensionality:` PCA, UMAP, t-SNE, DiffMap, PHATE, and nearest-neighbor graphs.
+* `scAnalysis.clustering:` K-Means, Leiden, Louvain, Spectral, DBSCAN, and Hierarchical clustering.
+* `scAnalysis.differential:` Highly vectorized statistics for marker discovery.
+* `scAnalysis.enrichment:` Gene set scoring, MSigDB integration, hypergeometric/Fisher enrichment, and GSEA.
+* `scAnalysis.trajectory:` Root cell selection, Diffusion Pseudotime (DPT), branching, and gene trend modeling.
+* `scAnalysis.visualization:` Static, publication-ready plotting (Violin, Dotplot, Heatmap, Volcano, etc.).
+* `scAnalysis.interactive_viz:` Plotly-powered interactive 2D/3D embeddings, violins, and heatmaps.
+* `scAnalysis.sc_io:` Native read/write support for 10x MTX, CSV, TSV, and `.h5ad` formats.
 
 ## 🧪 Testing
-The package includes a comprehensive suite of unit tests. To run the tests locally:
+The package includes a comprehensive suite of unit tests checking matrix sparsity integrity, statistical functions, and algorithmic accuracy. To run the tests locally:
 
-``` bash
+```bash
 python -m unittest discover scAnalysis/ -p "test_*.py"
 ```
 
@@ -137,20 +174,11 @@ Contributions are welcome! If you find a bug or want to suggest a new feature, p
 
 ## 🤖 Future Enhancements / To-Do List
 - [x] Implement Imputation Module (Dropout Handling)
-
-  - Context: The current scAnalysis package lacks a dedicated module to handle missing data and technical dropouts.
-  
-  - Task: Develop an imputation workflow to infer missing values and correct for zero-inflation.
-  
-  - References: Investigate integrating or replicating methodologies like SAVER (Poisson LASSO strategy) or scVI (Variational Autoencoders).
-
+  - Successfully integrated WNID, kNN-smoothing, and Diffusion algorithms.
 - [ ] Add Automated Cell Type Annotation & Projection
-
-  - Context: Currently, cell type assignment relies on a manual, marker-based approach using gene set scoring (enrichment.py).
-  
+  - Context: Currently, cell type assignment relies on a manual, marker-based approach using gene set scoring (`enrichment.py`).
   - Task: Implement automated, classifier-based annotation tools that can predict cell types directly from reference datasets.
-  
-  - References: Consider integrating projection algorithms like scmap or regularized regression classifiers like Garnett.
+  - References: Consider integrating projection algorithms like *scmap* or regularized regression classifiers like *Garnett*.
 
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/ayyucedemirbas/scAnalyzer/blob/main/LICENSE) file for details.

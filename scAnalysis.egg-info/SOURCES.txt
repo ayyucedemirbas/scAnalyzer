@@ -1,6 +1,7 @@
 LICENSE
 README.md
 pyproject.toml
+docs/source/conf.py
 scAnalysis/__init__.py
 scAnalysis/batch_correction.py
 scAnalysis/cell_cycle.py
@@ -11,11 +12,13 @@ scAnalysis/differential.py
 scAnalysis/dimensionality.py
 scAnalysis/enrichment.py
 scAnalysis/extended_analysis_example.py
+scAnalysis/grn_inference.py
 scAnalysis/imputation.py
 scAnalysis/interactive_viz.py
 scAnalysis/preprocessing.py
 scAnalysis/quality_control.py
 scAnalysis/sc_io.py
+scAnalysis/spatial.py
 scAnalysis/test_improvements.py
 scAnalysis/test_main.py
 scAnalysis/trajectory.py

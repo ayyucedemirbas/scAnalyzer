@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scAnalysis"
-version = "0.2.0"
+version = "0.2.2"
 description = "A single-cell analysis pipeline."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -23,3 +23,5 @@ dependencies = [
     "igraph",
     "plotly"
 ]
+[tool.setuptools.packages.find]
+exclude = ["tutorial*"]
